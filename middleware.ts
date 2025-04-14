@@ -1,6 +1,7 @@
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { UserRole } from "@/lib/types/database";
 
 export async function middleware(request: NextRequest) {
   const res = NextResponse.next();
@@ -19,11 +20,15 @@ export async function middleware(request: NextRequest) {
     return res;
   }
 
-  // Check if this is the onboarding route specifically
+  // Check route types
   const isOnboardingRoute = request.nextUrl.pathname.startsWith("/onboarding");
+  const isAdminRoute = request.nextUrl.pathname.startsWith("/admin");
+  const isEmployerRoute = request.nextUrl.pathname.startsWith("/jobs/create") || 
+                         request.nextUrl.pathname.startsWith("/candidates");
+  const isStudentRoute = request.nextUrl.pathname.startsWith("/track");
   
   // Protected routes - redirect to login if not authenticated
-  const protectedRoutes = ["/profile", "/track", "/onboarding"];
+  const protectedRoutes = ["/profile", "/track", "/onboarding", "/admin", "/jobs/create", "/candidates"];
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   );
@@ -32,23 +37,49 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/login", request.url));
   }
   
-  // For onboarding route specifically, check if the user has already completed onboarding
-  if (isOnboardingRoute && session) {
+  // If authenticated, check role-based access
+  if (session) {
     try {
-      // Check user's profile for onboarding status
+      // Get user's role from profile
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("has_completed_onboarding, has_uploaded_cv")
+        .select("role")
         .eq("id", session.user.id)
-        .maybeSingle();
+        .single();
       
-      // If the user has completed onboarding or uploaded a CV, redirect to home
-      if (profileData && (profileData.has_completed_onboarding || profileData.has_uploaded_cv)) {
+      const userRole = profileData?.role as UserRole;
+      
+      // Check admin routes
+      if (isAdminRoute && userRole !== "admin") {
         return NextResponse.redirect(new URL("/", request.url));
       }
+      
+      // Check employer routes
+      if (isEmployerRoute && userRole !== "employer" && userRole !== "admin") {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+      
+      // Check student routes
+      if (isStudentRoute && userRole !== "student" && userRole !== "admin") {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+      
+      // For onboarding route, check if already completed
+      if (isOnboardingRoute) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("has_completed_onboarding, has_uploaded_cv")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        
+        if (profileData && (profileData.has_completed_onboarding || profileData.has_uploaded_cv)) {
+          return NextResponse.redirect(new URL("/", request.url));
+        }
+      }
     } catch (error) {
-      console.error("Error checking onboarding status:", error);
-      // Continue to onboarding if there's an error checking the status
+      console.error("Error checking user role:", error);
+      // On error checking role, redirect to home
+      return NextResponse.redirect(new URL("/", request.url));
     }
   }
 

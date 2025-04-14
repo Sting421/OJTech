@@ -1,99 +1,115 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { UserCircle, GraduationCap, LogOut } from "lucide-react";
-import { useAuth } from "@/providers/auth-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useEffect, useState } from "react";
+import { useAuth } from "@/providers/auth-provider";
+import { cn } from "@/lib/utils";
+import { UserRole } from "@/lib/types/database";
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, profile, signOut, isLoading } = useAuth();
-  
-  // Add local state to handle sign-out UI updates immediately
-  const [isSigningOut, setIsSigningOut] = useState(false);
+  const { user, profile, signOut } = useAuth();
 
-  const handleSignOut = async () => {
-    console.log("Sign out button clicked");
-    try {
-      // Set local state to immediately hide authenticated UI
-      setIsSigningOut(true);
-      
-      // Call the auth provider's signOut function
-      await signOut();
-      console.log("Sign out completed successfully");
-    } catch (error) {
-      // On error, revert the local state
-      setIsSigningOut(false);
-      console.error("Error in navbar sign out:", error);
+  // Get navigation items based on user role
+  const getNavItems = (role?: UserRole) => {
+    const items = [
+      { href: "/", label: "Home" },
+    ];
+
+    if (!user) {
+      return items;
+    }
+
+    switch (role) {
+      case "admin":
+        return [
+          ...items,
+          { href: "/admin/dashboard", label: "Admin Dashboard" },
+          { href: "/admin/users", label: "Manage Users" },
+          { href: "/admin/employers", label: "Manage Employers" },
+        ];
+      case "employer":
+        return [
+          ...items,
+          { href: "/jobs", label: "My Jobs" },
+          { href: "/jobs/create", label: "Post Job" },
+          { href: "/candidates", label: "Candidates" },
+        ];
+      case "student":
+        return [
+          ...items,
+          { href: "/opportunities", label: "Find Jobs" },
+          { href: "/track", label: "Track Applications" },
+        ];
+      default:
+        return items;
     }
   };
-  
-  // Reset signing out state if user is re-authenticated
-  useEffect(() => {
-    if (user && isSigningOut) {
-      setIsSigningOut(false);
-    }
-  }, [user, isSigningOut]);
 
-  // Determine whether to show authenticated UI elements
-  const isAuthenticated = !isLoading && user && !isSigningOut;
+  const navItems = getNavItems(profile?.role);
 
   return (
-    <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="max-w-screen-xl mx-auto flex h-16 items-center justify-between px-4 md:px-6">
-        <Link href="/" className="flex items-center space-x-2">
-          <GraduationCap className="h-6 w-6" />
-          <span className="font-bold">OJTech</span>
-        </Link>
-        
-        <div className="flex items-center gap-1 md:gap-2">
-          <Link href="/">
-            <Button variant="ghost" className={pathname === "/" ? "bg-accent" : ""}>
-              Home
-            </Button>
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 items-center">
+        <div className="mr-8 hidden md:flex">
+          <Link href="/" className="mr-6 flex items-center space-x-2">
+            <span className="font-bold">OJTech</span>
           </Link>
-          <Link href="/opportunities">
-            <Button variant="ghost" className={pathname === "/opportunities" ? "bg-accent" : ""}>
-              Opportunities
-            </Button>
-          </Link>
-          
-          {isAuthenticated ? (
-            <>
-              <Link href="/track">
-                <Button variant="ghost" className={pathname === "/track" ? "bg-accent" : ""}>
-                  Track Applications
-                </Button>
+          <nav className="flex items-center space-x-6 text-sm font-medium">
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "transition-colors hover:text-foreground/80",
+                  pathname === item.href ? "text-foreground" : "text-foreground/60"
+                )}
+              >
+                {item.label}
               </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
+          {user ? (
+            <div className="flex items-center space-x-4">
+              {profile?.role && (
+                <span className={cn(
+                  "px-2.5 py-0.5 rounded-full text-xs font-medium",
+                  profile.role === "admin" && "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+                  profile.role === "employer" && "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+                  profile.role === "student" && "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                )}>
+                  {profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+                </span>
+              )}
               <Link href="/profile">
-                <Button variant="ghost" className={pathname === "/profile" ? "bg-accent" : ""}>
-                  {profile?.avatar_url ? (
-                    <Avatar className="h-6 w-6 mr-2">
-                      <AvatarImage src={profile.avatar_url} alt={profile.full_name} />
-                      <AvatarFallback>{profile.full_name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                  ) : (
-                    <UserCircle className="h-5 w-5 mr-2" />
-                  )}
-                  Profile
-                </Button>
+                <Avatar>
+                  <AvatarImage src={profile?.avatar_url || undefined} />
+                  <AvatarFallback>
+                    {profile?.full_name?.charAt(0) || user.email?.charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
               </Link>
-              <Button variant="ghost" onClick={handleSignOut}>
-                <LogOut className="h-5 w-5 mr-2" />
+              <Button variant="outline" onClick={signOut}>
                 Sign Out
               </Button>
-            </>
+            </div>
           ) : (
-            <Link href="/auth/login">
-              <Button>Sign In</Button>
-            </Link>
+            <div className="flex items-center space-x-2">
+              <Link href="/auth/login">
+                <Button variant="ghost">Log In</Button>
+              </Link>
+              <Link href="/auth/register">
+                <Button>Sign Up</Button>
+              </Link>
+            </div>
           )}
         </div>
       </div>
-    </nav>
+    </header>
   );
 }
