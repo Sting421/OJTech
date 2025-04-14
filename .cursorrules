@@ -1,0 +1,93 @@
+# OJTech Project Rules and Patterns
+
+## File Locations and Structure
+
+- UI Components: Place in `/components` directory
+  - shadcn/ui components: `/components/ui`
+  - Auth-related components: `/components/auth`
+  - Page-specific components: `/components/[feature-name]`
+
+- Routes: Follow Next.js 13+ App Router structure in `/app` directory
+  - Group related routes in folders (e.g., `/app/auth/login`)
+  - Page components should be named `page.tsx`
+  - Layout components should be named `layout.tsx`
+
+- Utility Functions:
+  - Server actions: `/lib/actions/[feature-name].ts`
+  - TypeScript types: `/lib/types/[domain].ts`
+  - Helper functions: `/lib/utils/[category].ts`
+  - Constants: `/lib/constants/[category].ts`
+
+## Coding Patterns
+
+### Authentication
+- Use Supabase Auth for user authentication
+- Protect routes with Next.js middleware in `middleware.ts`
+- Handle auth state with Supabase's `onAuthStateChange` in client components
+- Use `createServerComponentClient` for server components
+- Use `createClientComponentClient` for client components
+
+### Data Access
+- Use server actions for data operations (not API routes)
+- We do not run local supabase, if you want to change things in supabase, provide a sql script. I will run in manually in the supabase SQL editor
+- Disable RLS policies, especially in development
+- Structure server actions with try/catch blocks
+- Return standardized response objects: `{ success: boolean, data?: any, error?: string }`
+- Follow the pattern in `/lib/actions/student-profile.ts`
+
+### Form Handling
+- Use React Hook Form with Zod validation
+- Define Zod schemas for form validation
+- Use form error handling with toast notifications
+- Implement loading states during form submission
+
+### UI Components
+- Use shadcn/ui components with Tailwind CSS
+- Maintain consistent spacing using Tailwind classes
+- Support both light and dark modes
+- Use toast notifications for user feedback
+
+### File Uploads
+- Use Cloudinary for image and document storage
+- Handle file uploads with the helper functions in `/lib/utils/upload-helper.ts`
+- Validate files before upload (size, type)
+- Use the `uploadFileToCloudinary` function in `/lib/actions/upload.ts`
+
+## Naming Conventions
+
+- React Components: PascalCase (e.g., `StudentProfile.tsx`)
+- Server Actions: camelCase (e.g., `createStudentProfile.ts`)
+- File/Directory Names: kebab-case (e.g., `student-profile`)
+- Database Table Names: snake_case (e.g., `student_profiles`)
+- TypeScript Interfaces: PascalCase (e.g., `StudentProfile`)
+- TypeScript Types: PascalCase (e.g., `CreateStudentProfileInput`)
+- CSS Classes: Use Tailwind classes directly
+
+## Common Pitfalls to Avoid
+
+- Don't mix client and server components incorrectly (use "use client" directive appropriately)
+- Avoid direct Supabase calls in server components without createServerComponentClient
+- Don't forget error handling in server actions
+- Remember to validate all user inputs
+- Ensure proper authorization checks for data access
+- Don't expose sensitive environment variables to the client side
+
+## Important Implementation Details
+
+- Profile photos and CVs are stored in Cloudinary
+- Student profile data is stored in the `student_profiles` table in Supabase
+- Authentication uses email/password with email verification
+- Protected routes: `/profile`, `/track`
+- Authentication routes: `/auth/login`, `/auth/register`
+
+## Type Definitions
+
+Key types to be aware of:
+- `StudentProfile`: Student profile data structure
+- `ApiResponse`: Standard API response structure
+
+## External Services
+
+- Supabase: Authentication, database, and storage
+- Cloudinary: Image and document storage and optimization
+- (Planned) OpenAI or Google Gemini: AI-based skills extraction and matching 

@@ -2,143 +2,54 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { uploadFileToCloudinary } from "@/lib/actions/upload";
-import { readFileAsBase64, validateFileSize, validateImageFile, validatePDFFile } from "@/lib/utils/upload-helper";
-import { createStudentProfile, updateStudentProfile, getStudentProfileBySchoolEmail } from "@/lib/actions/student-profile";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { countries, philippineRegions, philippineCities, philippinePostalCodes } from "@/lib/constants/locations";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { readFileAsBase64, validateFileSize, validatePDFFile } from "@/lib/utils/upload-helper";
+import { useAuth } from "@/providers/auth-provider";
+import { getCurrentUserMostRecentCv } from "@/lib/actions/cv";
+import { uploadAndParseCV } from "@/lib/actions/resume-parser";
+import { Loader2 } from "lucide-react";
 
-export default function ProfilePage() {
+export default function ResumePage() {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
+  const { user, profile: authProfile, refreshUser } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [availableCities, setAvailableCities] = useState<string[]>([]);
-  const [availablePostalCodes, setAvailablePostalCodes] = useState<string[]>([]);
+  const [cvData, setCvData] = useState<any>(null);
+  const [hasResume, setHasResume] = useState(false);
 
-  const [formData, setFormData] = useState({
-    fullName: "",
-    university: "",
-    course: "",
-    yearLevel: "",
-    bio: "",
-    githubLink: "",
-    cv: null as File | null,
-    // Contact Information
-    schoolEmail: "",
-    personalEmail: "",
-    phoneNumber: "",
-    streetAddress: "",
-    city: "",
-    region: "",
-    postalCode: "",
-    country: "Philippines",
-    avatar: null as File | null,
-  });
-
-  // Update available cities when region changes
+  // Track if we're already loading data
+  const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Initial data load
   useEffect(() => {
-    if (formData.region && formData.region in philippineCities) {
-      setAvailableCities([...philippineCities[formData.region as keyof typeof philippineCities]]);
-    } else {
-      setAvailableCities([]);
-    }
-  }, [formData.region]);
-
-  // Update available postal codes when city changes
-  useEffect(() => {
-    if (formData.city && formData.city in philippinePostalCodes) {
-      setAvailablePostalCodes([...philippinePostalCodes[formData.city as keyof typeof philippinePostalCodes]]);
-    } else {
-      setAvailablePostalCodes([]);
-    }
-  }, [formData.city]);
-
-  useEffect(() => {
-    async function loadProfile() {
+    if (!user || isInitialized) return;
+    
+    async function loadResumeData() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          toast({
-            title: "Error",
-            description: "Please sign in to view your profile",
-            variant: "destructive",
-          });
-          return;
+        setLoading(true);
+        setUserId(user?.id || null);
+
+        // Load CV data from profile if available
+        if (authProfile?.cv_data) {
+          console.log("Using CV data from profile:", authProfile.cv_data);
+          setCvData(authProfile.cv_data);
+          setHasResume(true);
+        } else {
+          // Only load CV data if not available in the profile
+          await loadCvData();
         }
-
-        setUserId(user.id);
-
-          const { data: sessionData } = await supabase.auth.getSession();
-          const email = sessionData.session?.user?.email;
-          if (!email) {
-            throw new Error("No authenticated user found");
-          }
-
-          const result = await getStudentProfileBySchoolEmail(email);
-          
-          if (!result.success) {
-            // Create new profile if doesn't exist
-            await createStudentProfile({
-              full_name: "",
-              university: "",
-              course: "",
-              year_level: 1,
-              bio: "",
-              github_profile: "",
-              school_email: email,
-              personal_email: null,
-              phone_number: null,
-              country: "Philippines",
-              region_province: null,
-              city: null,
-              postal_code: null,
-              street_address: null,
-              photo_url: null,
-              cv_url: null
-            });
-          } else if (result.data) {
-            const profile = result.data!;
-            setFormData({
-              fullName: profile.full_name || "",
-              university: profile.university || "",
-              course: profile.course || "",
-              yearLevel: profile.year_level?.toString() || "1",
-              bio: profile.bio || "",
-              githubLink: profile.github_profile || "",
-              cv: null,
-              schoolEmail: profile.school_email || "",
-              personalEmail: profile.personal_email || "",
-              phoneNumber: profile.phone_number || "",
-              streetAddress: profile.street_address || "",
-              city: profile.city || "",
-              region: profile.region_province || "",
-              postalCode: profile.postal_code || "",
-              country: profile.country || "Philippines",
-              avatar: null,
-            });
-
-            if (profile.photo_url) {
-              setAvatarUrl(profile.photo_url);
-            }
-        }
+        
+        // Mark that we've successfully initialized data
+        setIsInitialized(true);
       } catch (error) {
+        console.error("Error loading resume data:", error);
         toast({
           title: "Error",
-          description: "Failed to load profile data",
+          description: "Failed to load resume data",
           variant: "destructive",
         });
       } finally {
@@ -146,377 +57,359 @@ export default function ProfilePage() {
       }
     }
 
-    loadProfile();
-  }, [toast, supabase]);
+    loadResumeData();
+  }, [user, authProfile, isInitialized]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const inputId = e.target.id;
-
-      if (inputId === 'avatar') {
-        setFormData(prev => ({ ...prev, avatar: file }));
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setAvatarUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      } else if (inputId === 'cv') {
-        setFormData(prev => ({ ...prev, cv: file }));
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
+  // Function to load CV data
+  async function loadCvData() {
+    if (!user) return;
+    
     try {
-      let photoUrl = avatarUrl;
-      let cvUrl = null;
-
-      try {
-        if (formData.avatar) {
-          if (!validateImageFile(formData.avatar)) {
-            toast({
-              title: "Error",
-              description: "Please upload a valid image file (JPEG, PNG, or GIF)",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          if (!validateFileSize(formData.avatar, 5)) {
-            toast({
-              title: "Error",
-              description: "Profile photo must be less than 5MB",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          const base64Data = await readFileAsBase64(formData.avatar);
-          const uploadResult = await uploadFileToCloudinary(base64Data, 'profile-photos');
-          if (!uploadResult.success) throw new Error(uploadResult.error);
-          if (!uploadResult.data) throw new Error('Upload failed: No data returned');
-          photoUrl = uploadResult.data.secure_url;
+      const result = await getCurrentUserMostRecentCv();
+      if (result.success && result.data) {
+        console.log("Retrieved CV data:", result.data);
+        
+        // Store CV skills data
+        setCvData(result.data.skills);
+        
+        // Mark that we have a resume
+        if (result.data.file_url) {
+          setHasResume(true);
         }
-
-        if (formData.cv) {
-          if (!validatePDFFile(formData.cv)) {
-            toast({
-              title: "Error",
-              description: "Please upload a valid PDF file",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          if (!validateFileSize(formData.cv, 10)) {
-            toast({
-              title: "Error",
-              description: "CV must be less than 10MB",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          const base64Data = await readFileAsBase64(formData.cv);
-          const uploadResult = await uploadFileToCloudinary(base64Data, 'cvs');
-          if (!uploadResult.success) throw new Error(uploadResult.error);
-          if (!uploadResult.data) throw new Error('Upload failed: No data returned');
-          cvUrl = uploadResult.data.secure_url;
-        }
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to upload files. Please try again.",
-          variant: "destructive",
-        });
-        return;
       }
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const email = sessionData.session?.user?.email;
-      if (!email) throw new Error("No authenticated user found");
-
-      const result = await updateStudentProfile(userId!, {
-        full_name: formData.fullName,
-        university: formData.university,
-        course: formData.course,
-        year_level: parseInt(formData.yearLevel),
-        bio: formData.bio,
-        github_profile: formData.githubLink,
-        school_email: email,
-        personal_email: formData.personalEmail || null,
-        phone_number: formData.phoneNumber || null,
-        street_address: formData.streetAddress || null,
-        city: formData.city || null,
-        region_province: formData.region || null,
-        postal_code: formData.postalCode || null,
-        country: formData.country,
-        photo_url: photoUrl,
-        cv_url: cvUrl,
-      });
-
-      if (!result.success) throw new Error(result.error);
-
-      toast({
-        title: "Success",
-        description: "Your profile has been updated successfully.",
-      });
     } catch (error) {
+      console.error("Error loading CV data:", error);
+    }
+  }
+
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !userId) return;
+    
+    const file = e.target.files[0];
+    
+    // Validate PDF file
+    if (!validatePDFFile(file)) {
       toast({
         title: "Error",
-        description: "Failed to update profile. Please try again.",
+        description: "Please upload a valid PDF file",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate file size (10MB max)
+    if (!validateFileSize(file, 10)) {
+      toast({
+        title: "Error",
+        description: "Resume must be less than 10MB",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setUploadLoading(true);
+    
+    try {
+      // Convert to base64
+      const base64Data = await readFileAsBase64(file);
+      
+      // Upload and parse
+      const result = await uploadAndParseCV(userId, base64Data);
+      
+      if (!result.success) {
+        throw new Error(result.error || "Failed to upload resume");
+      }
+      
+      toast({
+        title: "Success",
+        description: "Your resume has been uploaded and is being processed",
+      });
+      
+      // Only refresh data, not the whole user
+      // This prevents additional authentication cycles
+      await loadCvData();
+      setHasResume(true);
+    } catch (error) {
+      console.error("Error uploading resume:", error);
+      toast({
+        title: "Error",
+        description: "Failed to upload resume. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setUploadLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">Student Profile</h1>
-        
-        <Card className="max-w-5xl mx-auto p-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Profile Picture Section */}
-            <div className="flex flex-col items-center space-y-4 mb-8">
-              <Avatar className="w-32 h-32">
-                <AvatarImage src={avatarUrl || ""} />
-                <AvatarFallback>{formData.fullName?.charAt(0) || "?"}</AvatarFallback>
-              </Avatar>
-              <div>
-                <Input
-                  id="avatar"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <Label
-                  htmlFor="avatar"
-                  className="cursor-pointer inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-                >
-                  Upload Photo
-                </Label>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-8">
-              {/* Left Column - Basic Information */}
-              <div className="space-y-6">
-                <h2 className="text-xl font-semibold">Basic Information</h2>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="fullName">Full Name</Label>
-                    <Input
-                      id="fullName"
-                      value={formData.fullName}
-                      onChange={(e) => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="university">University</Label>
-                    <Input
-                      id="university"
-                      value={formData.university}
-                      onChange={(e) => setFormData(prev => ({ ...prev, university: e.target.value }))}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="course">Course</Label>
-                    <Input
-                      id="course"
-                      value={formData.course}
-                      onChange={(e) => setFormData(prev => ({ ...prev, course: e.target.value }))}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="yearLevel">Year Level</Label>
-                    <Input
-                      id="yearLevel"
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={formData.yearLevel}
-                      onChange={(e) => setFormData(prev => ({ ...prev, yearLevel: e.target.value }))}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="bio">Bio</Label>
-                    <Textarea
-                      id="bio"
-                      value={formData.bio}
-                      onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
-                      placeholder="Tell us about yourself..."
-                      className="h-32"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="githubLink">GitHub Profile Link</Label>
-                    <Input
-                      id="githubLink"
-                      type="url"
-                      placeholder="https://github.com/yourusername"
-                      value={formData.githubLink}
-                      onChange={(e) => setFormData(prev => ({ ...prev, githubLink: e.target.value }))}
-                    />
-                  </div>
+      <div className="container mx-auto px-4 py-8">        
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Resume Upload Section */}
+            <Card className="p-6">
+              <div className="flex flex-col items-center space-y-4">
+                <h2 className="text-xl font-semibold">Upload Your Resume</h2>
+                <p className="text-muted-foreground text-center max-w-md">
+                  Upload your resume to automatically extract your skills, experience, and education.
+                  Employers will be able to view this information when reviewing your profile.
+                </p>
+                
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="resume"
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Label
+                    htmlFor="resume"
+                    className="cursor-pointer inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                  >
+                    {uploadLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : hasResume ? "Replace Resume" : "Upload Resume"}
+                  </Label>
                 </div>
               </div>
-
-              {/* Right Column - Contact Information */}
-              <div className="space-y-6">
-                <h2 className="text-xl font-semibold">Contact Information</h2>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="schoolEmail">School Email</Label>
-                    <Input
-                      id="schoolEmail"
-                      type="email"
-                      value={formData.schoolEmail}
-                      onChange={(e) => setFormData(prev => ({ ...prev, schoolEmail: e.target.value }))}
-                      placeholder="your.name@school.edu"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="personalEmail">Personal Email</Label>
-                    <Input
-                      id="personalEmail"
-                      type="email"
-                      value={formData.personalEmail}
-                      onChange={(e) => setFormData(prev => ({ ...prev, personalEmail: e.target.value }))}
-                      placeholder="your.name@example.com"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="phoneNumber">Phone Number</Label>
-                    <Input
-                      id="phoneNumber"
-                      type="tel"
-                      value={formData.phoneNumber}
-                      onChange={(e) => setFormData(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                      placeholder="+63 XXX XXX XXXX"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium">Address Information</h3>
-                    
-                    <div>
-                      <Label htmlFor="country">Country</Label>
-                      <Select
-                        value={formData.country}
-                        onValueChange={(value) => setFormData(prev => ({ ...prev, country: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select country" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {countries.map((country) => (
-                            <SelectItem key={country} value={country}>
-                              {country}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="region">Region/Province</Label>
-                      <Select
-                        value={formData.region}
-                        onValueChange={(value) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            region: value,
-                            city: "", // Reset city when region changes
-                            postalCode: "", // Reset postal code when region changes
-                          }));
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select region" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {philippineRegions.map((region) => (
-                            <SelectItem key={region} value={region}>
-                              {region}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="city">City</Label>
-                      <Input
-                        id="city"
-                        value={formData.city}
-                        onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
-                        placeholder="Enter city name"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="postalCode">Postal Code</Label>
-                      <Input
-                        id="postalCode"
-                        value={formData.postalCode}
-                        onChange={(e) => setFormData(prev => ({ ...prev, postalCode: e.target.value }))}
-                        placeholder="Enter postal code"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="streetAddress">Street Address</Label>
-                      <Textarea
-                        id="streetAddress"
-                        value={formData.streetAddress}
-                        onChange={(e) => setFormData(prev => ({ ...prev, streetAddress: e.target.value }))}
-                        placeholder="Enter your street address"
-                        required
-                      />
+            </Card>
+            
+            {/* Resume Information Section */}
+            {cvData && (
+              <Card className="p-6">
+                <h2 className="text-2xl font-bold mb-6">Resume Information</h2>
+                
+                {/* Personal Info Section */}
+                {cvData.personal_info && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Personal Information</h3>
+                    <div className="space-y-2">
+                      {cvData.personal_info.name && (
+                        <p><span className="font-medium">Name:</span> {cvData.personal_info.name}</p>
+                      )}
+                      {cvData.personal_info.email && (
+                        <p><span className="font-medium">Email:</span> {cvData.personal_info.email}</p>
+                      )}
+                      {cvData.personal_info.phone && (
+                        <p><span className="font-medium">Phone:</span> {cvData.personal_info.phone}</p>
+                      )}
+                      {cvData.personal_info.location && (
+                        <p><span className="font-medium">Location:</span> {cvData.personal_info.location}</p>
+                      )}
+                      {cvData.personal_info.github && (
+                        <p>
+                          <span className="font-medium">GitHub:</span>{" "}
+                          <a 
+                            href={cvData.personal_info.github}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {cvData.personal_info.github}
+                          </a>
+                        </p>
+                      )}
+                      {cvData.personal_info.linkedin && (
+                        <p>
+                          <span className="font-medium">LinkedIn:</span>{" "}
+                          <a 
+                            href={cvData.personal_info.linkedin}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {cvData.personal_info.linkedin}
+                          </a>
+                        </p>
+                      )}
                     </div>
                   </div>
-
-                  <div>
-                    <Label htmlFor="cv">Upload CV (PDF)</Label>
-                    <Input
-                      id="cv"
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleFileChange}
-                    />
+                )}
+                
+                {/* Summary Section */}
+                {cvData.summary && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Professional Summary</h3>
+                    <p className="text-muted-foreground">{cvData.summary}</p>
                   </div>
+                )}
+                
+                {/* Skills Section */}
+                {(cvData.skills || cvData.extracted_skills) && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Skills</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {(cvData.skills || cvData.extracted_skills || []).map((skill: string, index: number) => (
+                        <div 
+                          key={index} 
+                          className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm"
+                        >
+                          {skill}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Education Section */}
+                {cvData.education && cvData.education.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Education</h3>
+                    <div className="space-y-4">
+                      {cvData.education.map((education: any, index: number) => (
+                        <div key={index} className="border-l-2 border-primary/20 pl-4 py-1">
+                          <h4 className="font-medium text-lg">{education.degree} in {education.field}</h4>
+                          <p className="text-muted-foreground">{education.institution}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {education.year && <span>{education.year}</span>}
+                            {education.location && <span>• {education.location}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Experience Section */}
+                {cvData.experience && cvData.experience.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Experience</h3>
+                    <div className="space-y-8">
+                      {cvData.experience.map((experience: any, index: number) => (
+                        <div key={index} className="border-l-2 border-primary/20 pl-6 py-3 relative">
+                          {/* Position and Duration */}
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2">
+                            <h4 className="font-semibold text-lg text-foreground">{experience.position}</h4>
+                            {experience.duration && (
+                              <span className="inline-flex items-center text-sm bg-muted px-3 py-1 rounded-full font-medium whitespace-nowrap">
+                                {experience.duration}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Company and Type */}
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <p className="font-medium text-base">{experience.company}</p>
+                            {experience.type && (
+                              <span className="text-xs bg-secondary/40 text-secondary-foreground px-2 py-0.5 rounded-full">
+                                {experience.type}
+                              </span>
+                            )}
+                            {experience.location && !experience.location.includes('Remote') && (
+                              <span className="text-sm text-muted-foreground">• {experience.location}</span>
+                            )}
+                          </div>
+                          
+                          {/* Description */}
+                          {experience.description && (
+                            <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                              {experience.description.split('\n').map((paragraph: string, i: number) => (
+                                <p key={i} className={i > 0 ? 'mt-2' : ''}>
+                                  {paragraph}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Certifications Section */}
+                {cvData.certifications && cvData.certifications.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Certifications</h3>
+                    <div className="space-y-4">
+                      {cvData.certifications.map((cert: any, index: number) => (
+                        <div key={index} className="border-l-2 border-primary/20 pl-4 py-1">
+                          <div className="flex items-start gap-2">
+                            <span className="text-amber-500 mt-1">🏆</span>
+                            <div>
+                              <h4 className="font-medium">{cert.name}</h4>
+                              <p className="text-sm text-muted-foreground">{cert.issuer}</p>
+                              {cert.year && <p className="text-xs text-muted-foreground">{cert.year}</p>}
+                              {cert.url && (
+                                <a 
+                                  href={cert.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-primary hover:underline mt-1 inline-block"
+                                >
+                                  View credential
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Projects Section */}
+                {cvData.projects && cvData.projects.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Projects</h3>
+                    <div className="space-y-5">
+                      {cvData.projects.map((project: any, index: number) => (
+                        <div key={index} className="border-l-2 border-primary/20 pl-4 py-2">
+                          <div className="flex justify-between items-start">
+                            <h4 className="font-medium text-lg">{project.name}</h4>
+                            {project.url && (
+                              <a 
+                                href={project.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary hover:underline"
+                              >
+                                View project
+                              </a>
+                            )}
+                          </div>
+                          <p className="mt-1 text-sm">{project.description}</p>
+                          {project.technologies && project.technologies.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {project.technologies.map((tech: string, techIndex: number) => (
+                                <span 
+                                  key={techIndex}
+                                  className="bg-secondary/50 text-secondary-foreground text-xs px-2 py-0.5 rounded-full"
+                                >
+                                  {tech}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
+            
+            {!cvData && !loading && (
+              <Card className="p-6">
+                <div className="flex flex-col items-center space-y-4 py-8">
+                  <h3 className="text-xl font-semibold">No Resume Found</h3>
+                  <p className="text-muted-foreground text-center max-w-md">
+                    Please upload your resume to get started. We'll automatically extract your skills,
+                    experience, and education to make your profile more attractive to employers.
+                  </p>
                 </div>
-              </div>
-            </div>
-
-            <Button type="submit" className="w-full mt-8" disabled={loading}>
-              {loading ? "Updating..." : "Update Profile"}
-            </Button>
-          </form>
-        </Card>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
