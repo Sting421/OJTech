@@ -9,6 +9,8 @@ import {
   isValidPdfBase64, 
   extractTextFromPdfBuffer 
 } from '@/lib/utils/pdf-helper';
+import { uploadFileToCloudinary } from "@/lib/actions/upload";
+import { analyzeResume } from "./resume-analyzer";
 
 // Configure Gemini API
 const API_KEY = process.env.GEMINI_API_KEY;
@@ -302,138 +304,6 @@ export async function extractTextFromPdf(pdfBase64: string): Promise<string> {
 }
 
 /**
- * Extract student profile data from CV text with high confidence
- */
-function extractStudentProfileData(pdfText: string, resumeData: ResumeData): Partial<any> {
-  console.log("Extracting student profile data from CV...");
-  const profileData: Partial<any> = {};
-  
-  // Extract university from education section
-  if (resumeData.education && resumeData.education.length > 0) {
-    const mostRecentEducation = resumeData.education[0];
-    
-    // Only include university if it's clearly mentioned
-    if (mostRecentEducation.institution && 
-        /university|college|institute|school/i.test(mostRecentEducation.institution)) {
-      profileData.university = mostRecentEducation.institution;
-      console.log(`Found university: ${profileData.university}`);
-    }
-    
-    // Extract course/degree if clearly stated
-    if (mostRecentEducation.degree && mostRecentEducation.field) {
-      profileData.course = `${mostRecentEducation.degree} in ${mostRecentEducation.field}`;
-      console.log(`Found course: ${profileData.course}`);
-    } else if (mostRecentEducation.field) {
-      profileData.course = mostRecentEducation.field;
-      console.log(`Found course (field only): ${profileData.course}`);
-    }
-    
-    // Extract year level if specified
-    const yearLevelRegex = /(\d)(?:st|nd|rd|th)?\s+year/i;
-    const yearLevelMatch = pdfText.match(yearLevelRegex);
-    if (yearLevelMatch && yearLevelMatch[1]) {
-      const yearLevel = parseInt(yearLevelMatch[1]);
-      if (yearLevel >= 1 && yearLevel <= 6) {
-        profileData.year_level = yearLevel;
-        console.log(`Found year level: ${profileData.year_level}`);
-      }
-    }
-  }
-  
-  // Extract bio/summary
-  if (resumeData.summary) {
-    profileData.bio = resumeData.summary;
-    console.log(`Found bio: ${profileData.bio.substring(0, 50)}...`);
-  }
-  
-  // Extract GitHub profile with high confidence
-  const githubRegex = /https?:\/\/github\.com\/[a-zA-Z0-9_-]+/g;
-  const githubMatches = pdfText.match(githubRegex);
-  if (githubMatches && githubMatches.length > 0) {
-    profileData.github_profile = githubMatches[0];
-    console.log(`Found GitHub profile: ${profileData.github_profile}`);
-  }
-  
-  // Extract personal email
-  // Look for multiple emails and try to identify personal vs school
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-  const emails = pdfText.match(emailRegex) || [];
-  
-  if (emails.length > 1) {
-    // If we have multiple emails, try to find personal email
-    // Personal emails often use gmail, yahoo, outlook, etc.
-    const personalEmailDomains = /gmail\.com|yahoo\.com|outlook\.com|hotmail\.com|icloud\.com/i;
-    const personalEmail = emails.find(email => personalEmailDomains.test(email));
-    
-    if (personalEmail) {
-      profileData.personal_email = personalEmail;
-      console.log(`Found personal email: ${profileData.personal_email}`);
-    }
-  }
-  
-  // Extract phone number with international format
-  const phoneRegex = /(?:\+\d{1,3}[\s-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
-  const phoneMatches = pdfText.match(phoneRegex);
-  if (phoneMatches && phoneMatches.length > 0) {
-    // Format phone number - this is a basic formatter and may need refinement
-    let phoneNumber = phoneMatches[0].replace(/[^\d+]/g, '');
-    if (!phoneNumber.startsWith('+')) {
-      // If it doesn't have country code, assume Philippines +63
-      if (phoneNumber.startsWith('0')) {
-        phoneNumber = '+63' + phoneNumber.substring(1);
-      } else {
-        phoneNumber = '+63' + phoneNumber;
-      }
-    }
-    profileData.phone_number = phoneNumber;
-    console.log(`Found phone number: ${profileData.phone_number}`);
-  }
-  
-  // Extract address information - this is complex and requires high confidence
-  // For now, we'll just set country if we can detect Philippines
-  if (/philippines|filipino|manila|quezon city|cebu|davao/i.test(pdfText)) {
-    profileData.country = 'Philippines';
-    console.log(`Set country to Philippines based on CV content`);
-    
-    // Try to extract region/province and city with high confidence
-    // This is a simplified approach and may need improvement
-    const regions = [
-      'Metro Manila', 'NCR', 'Calabarzon', 'Central Luzon', 'Bicol', 
-      'Western Visayas', 'Central Visayas', 'Eastern Visayas', 'Davao'
-    ];
-    
-    for (const region of regions) {
-      const regionRegex = new RegExp(`\\b${region}\\b`, 'i');
-      if (regionRegex.test(pdfText)) {
-        profileData.region_province = region;
-        console.log(`Found region: ${profileData.region_province}`);
-        break;
-      }
-    }
-    
-    // Common cities in Philippines
-    const cities = [
-      'Manila', 'Quezon City', 'Davao', 'Cebu', 'Makati', 'Taguig',
-      'Pasig', 'Caloocan', 'Mandaluyong', 'Pasay', 'Parañaque'
-    ];
-    
-    for (const city of cities) {
-      const cityRegex = new RegExp(`\\b${city}\\b`, 'i');
-      if (cityRegex.test(pdfText)) {
-        profileData.city = city;
-        console.log(`Found city: ${profileData.city}`);
-        break;
-      }
-    }
-  }
-  
-  // Remove any fields with low confidence
-  return Object.fromEntries(
-    Object.entries(profileData).filter(([_, value]) => value !== null && value !== undefined)
-  );
-}
-
-/**
  * Process a CV and extract information using Gemini
  */
 export async function processCV(cvId: string, pdfBase64: string): Promise<ApiResponse<ResumeData>> {
@@ -453,7 +323,7 @@ export async function processCV(cvId: string, pdfBase64: string): Promise<ApiRes
     
     console.log(`Found CV record: ${cv.id} for user: ${cv.user_id}`);
 
-    // 2. Extract text from PDF (now using actual PDF parsing)
+    // 2. Extract text from PDF using the provided base64 data (already in memory)
     console.log("Extracting text from PDF...");
     const pdfText = await extractTextFromPdf(pdfBase64);
     
@@ -473,6 +343,7 @@ export async function processCV(cvId: string, pdfBase64: string): Promise<ApiRes
     console.log('Keywords extracted:', resumeData.keywords);
 
     // 4. Update CV record with extracted skills and data
+    // We're only storing the metadata, not the raw content
     console.log(`Updating CV record (${cvId}) with parsed data...`);
     const { error: updateError } = await supabase
       .from("cvs")
@@ -489,203 +360,47 @@ export async function processCV(cvId: string, pdfBase64: string): Promise<ApiRes
     
     console.log(`CV record updated successfully`);
     
-    // 5. Extract student profile data from CV
-    const studentProfileData = extractStudentProfileData(pdfText, resumeData);
-    
-    // 6. Update student_profiles table if we have any extracted data
-    if (Object.keys(studentProfileData).length > 0) {
-      try {
-        console.log(`Updating student_profiles table with extracted data for user ${cv.user_id}`);
-        
-        // First check if student profile exists
-        const { data: existingProfile, error: profileCheckError } = await supabase
-          .from("student_profiles")
-          .select("id")
-          .eq("id", cv.user_id)
-          .single();
-          
-        if (profileCheckError && profileCheckError.code !== 'PGRST116') {
-          // Error other than "no rows found"
-          console.error("Error checking student profile existence:", profileCheckError);
-        }
-        
-        if (!existingProfile) {
-          // Profile doesn't exist, create it with minimal data
-          console.log("Student profile doesn't exist, creating with extracted data");
-          
-          // Get user email from profiles table
-          const { data: userData, error: userError } = await supabase
-            .from("profiles")
-            .select("email")
-            .eq("id", cv.user_id)
-            .single();
-            
-          if (userError) {
-            console.error("Error getting user email:", userError);
-            throw userError;
-          }
-          
-          // Create basic student profile
-          const baseProfile = {
-            id: cv.user_id,
-            full_name: "", // Will be populated from profiles sync
-            school_email: userData.email,
-            country: "Philippines",
-            ...studentProfileData
-          };
-          
-          const { error: insertError } = await supabase
-            .from("student_profiles")
-            .insert([baseProfile]);
-            
-          if (insertError) {
-            console.error("Error creating student profile:", insertError);
-            throw insertError;
-          }
-          
-          console.log("Created new student profile with extracted data");
-        } else {
-          // Profile exists, update it with extracted data
-          console.log("Updating existing student profile with extracted data");
-          
-          const { error: updateProfileError } = await supabase
-            .from("student_profiles")
-            .update(studentProfileData)
-            .eq("id", cv.user_id);
-            
-          if (updateProfileError) {
-            console.error("Error updating student profile:", updateProfileError);
-            throw updateProfileError;
-          }
-          
-          console.log("Updated student profile with extracted data");
-        }
-      } catch (studentProfileError) {
-        // Log error but don't fail the CV processing
-        console.error("Error updating student_profiles table:", studentProfileError);
-      }
-    }
-    
-    // 5. Update profile with relevant data from CV
+    // 5. Extract and process user information for profile updates
     try {
+      // Extract GitHub profile if present in the data
+      let githubProfile = null;
+      
+      // Try to extract from personal_info first
+      if (resumeData.personal_info?.github) {
+        githubProfile = resumeData.personal_info.github;
+        console.log(`Found GitHub profile in personal info: ${githubProfile}`);
+      } else {
+        // Fallback: search in the raw text
+        const githubRegex = /github\.com\/[a-zA-Z0-9_-]+/g;
+        const githubMatches = pdfText.match(githubRegex);
+        
+        if (githubMatches && githubMatches.length > 0) {
+          // Use the first match
+          githubProfile = `https://${githubMatches[0]}`;
+          console.log(`Found GitHub profile in CV text: ${githubProfile}`);
+        }
+      }
+      
+      // Update profile with CV information
       console.log("Syncing CV data to profile table...");
       
-      // Extract GitHub profile from the CV text
-      let githubProfile = null;
-      const githubRegex = /github\.com\/[a-zA-Z0-9_-]+/g;
-      const githubMatches = pdfText.match(githubRegex);
+      const updateData: any = { 
+        has_uploaded_cv: true
+      };
       
-      if (githubMatches && githubMatches.length > 0) {
-        // Use the first match
-        githubProfile = `https://${githubMatches[0]}`;
-        console.log(`Found GitHub profile in CV: ${githubProfile}`);
+      if (githubProfile) {
+        updateData.github_profile = githubProfile;
       }
       
-      // Check if cv_data column exists before trying to use it
-      try {
-        // First, try to check if the column exists in the profiles table
-        const { data: columns, error: columnsError } = await supabase
-          .from('information_schema.columns')
-          .select('column_name')
-          .eq('table_name', 'profiles')
-          .eq('column_name', 'cv_data');
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update(updateData)
+        .eq("id", cv.user_id);
         
-        const hasCvDataColumn = columns && columns.length > 0;
-        
-        // Update the profile with the basic flags that are guaranteed to exist
-        const updateData: any = {
-          github_profile: githubProfile || undefined,
-          has_uploaded_cv: true
-          // Removed has_completed_onboarding: true to fix premature completion
-        };
-        
-        // Only add cv_data if the column exists
-        if (hasCvDataColumn) {
-          console.log("cv_data column exists, adding extracted metadata");
-          // Prepare profile metadata with extracted information
-          const profileMetadata: any = {
-            has_uploaded_cv: true
-            // Removed has_completed_onboarding: true to fix premature completion
-          };
-          
-          // Add GitHub profile if found
-          if (githubProfile) {
-            profileMetadata.github_profile = githubProfile;
-          }
-          
-          // Extract education and experience as metadata
-          if (resumeData.education && resumeData.education.length > 0) {
-            // Find the most recent or most relevant education
-            const primaryEducation = resumeData.education[0];
-            
-            profileMetadata.education = {
-              institution: primaryEducation.institution,
-              degree: primaryEducation.degree,
-              field: primaryEducation.field,
-              year: primaryEducation.year
-            };
-          }
-          
-          if (resumeData.experience && resumeData.experience.length > 0) {
-            // Get the most recent experience
-            const recentExperience = resumeData.experience[0];
-            
-            profileMetadata.experience = {
-              company: recentExperience.company,
-              position: recentExperience.position,
-              duration: recentExperience.duration
-            };
-          }
-          
-          // Add the full list of skills
-          if (resumeData.skills && resumeData.skills.length > 0) {
-            profileMetadata.extracted_skills = resumeData.skills;
-          }
-          
-          // Add the keywords
-          if (resumeData.keywords && resumeData.keywords.length > 0) {
-            profileMetadata.keywords = resumeData.keywords;
-          }
-          
-          // Store the full resume data in the cv_data field
-          updateData.cv_data = resumeData;
-        } else {
-          console.log("cv_data column does not exist yet, skipping metadata");
-        }
-        
-        console.log(`Updating profile (${cv.user_id}) with data:`, updateData);
-        
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .update(updateData)
-          .eq("id", cv.user_id)
-          .select()
-          .single();
-        
-        if (profileError) {
-          throw profileError;
-        }
-        
+      if (profileError) {
+        console.error("Error updating profile with CV data:", profileError);
+      } else {
         console.log("Profile updated successfully with CV data");
-      } catch (columnError) {
-        console.error("Error checking column existence:", columnError);
-        
-        // Fallback to updating just the basic profile fields
-        console.log("Falling back to updating basic profile fields only");
-        const { error: basicUpdateError } = await supabase
-          .from("profiles")
-          .update({ 
-            github_profile: githubProfile || undefined,
-            has_uploaded_cv: true
-            // Removed has_completed_onboarding: true to fix premature completion
-          })
-          .eq("id", cv.user_id);
-          
-        if (basicUpdateError) {
-          throw basicUpdateError;
-        }
-        
-        console.log("Basic profile fields updated successfully");
       }
     } catch (profileError) {
       // Log error but don't fail the CV processing
@@ -711,6 +426,17 @@ export async function uploadAndParseCV(
 ): Promise<ApiResponse<CV>> {
   console.log(`Starting CV parsing for user: ${userId}`);
   try {
+    // First, upload the file to Cloudinary - we'll store it externally even though we don't track the URL
+    console.log("Uploading CV to Cloudinary...");
+    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs');
+    
+    if (!uploadResult.success || !uploadResult.data) {
+      console.error("Failed to upload CV to Cloudinary:", uploadResult.error);
+      throw new Error(uploadResult.error || "Failed to upload CV");
+    }
+    
+    console.log(`Successfully uploaded CV to Cloudinary: ${uploadResult.data.secure_url}`);
+    
     // Extract GitHub profile from PDF content
     console.log("Extracting GitHub profile from CV...");
     let githubProfile = null;
@@ -729,13 +455,27 @@ export async function uploadAndParseCV(
       }
     }
     
+    // Get the next version number for this user's CV
+    console.log("Getting next CV version number...");
+    const { data: versionData, error: versionError } = await supabase
+      .rpc('get_next_cv_version', { user_id_param: userId });
+    
+    let versionNumber = 1; // Default to version 1
+    if (!versionError && versionData !== null) {
+      versionNumber = versionData;
+    } else {
+      console.error("Error getting next version number:", versionError);
+    }
+    
     // 1. Create CV record in database
     console.log("Creating CV record in database...");
     const { data: cv, error } = await supabase
       .from("cvs")
       .insert([{
         user_id: userId,
-        skills: null // Will be updated after parsing
+        skills: null, // Will be updated after parsing
+        version: versionNumber,
+        is_active: true // This will automatically set other CVs to inactive via trigger
       }])
       .select()
       .single();
@@ -783,14 +523,48 @@ export async function uploadAndParseCV(
       console.error("Error updating profile flags:", profileError);
     }
     
-    // 3. Parse the CV and extract information asynchronously
+    // 3. Parse the CV and extract information asynchronously using the PDF content in memory
     // We don't await this to make the parsing process faster
     console.log("Starting asynchronous CV processing for detailed analysis...");
-    processCV(cv.id, fileBase64).catch(err => {
-      console.error("Background CV processing failed:", err);
-    });
+    processCV(cv.id, fileBase64)
+      .then(async () => {
+        // 4. Once the CV is processed, trigger the resume analysis
+        console.log("CV processing completed, now triggering resume analysis...");
+        try {
+          // Add a small delay to ensure skills data is fully saved
+          // This helps avoid race conditions where analysis starts before skills are fully saved
+          console.log("Waiting 3 seconds before starting analysis to ensure data is settled...");
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // Start resume analysis in the background with retry logic
+          const analyzeWithRetry = async (retries = 2) => {
+            try {
+              console.log(`Attempting to analyze CV (attempt ${3 - retries}/3)...`);
+              return await analyzeResume(userId, cv.id);
+            } catch (err) {
+              console.error(`Analysis attempt failed: ${err}`);
+              if (retries > 0) {
+                console.log(`Retrying analysis in 2 seconds... (${retries} retries left)`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return analyzeWithRetry(retries - 1);
+              }
+              throw err;
+            }
+          };
+          
+          // Start the analysis with retry logic
+          analyzeWithRetry().catch(analysisErr => {
+            console.error("Background CV analysis failed after all retry attempts:", analysisErr);
+          });
+        } catch (analysisError) {
+          console.error("Error starting resume analysis:", analysisError);
+        }
+      })
+      .catch(err => {
+        console.error("Background CV processing failed:", err);
+      });
     
-    console.log("CV parsing completed, detailed analysis will continue in background");
+    console.log("CV parsing initiated, detailed analysis will continue in background");
     return { success: true, data: cv };
   } catch (error) {
     console.error("Error parsing CV:", error);

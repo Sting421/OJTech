@@ -30,6 +30,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasFixedInconsistency, setHasFixedInconsistency] = useState(false);
   
+  // Handle loading state class
+  useEffect(() => {
+    if (isLoading) {
+      document.body.classList.add('auth-checking');
+    } else {
+      document.body.classList.remove('auth-checking');
+    }
+  }, [isLoading]);
+  
   // Create a single Supabase client instance that's used throughout the provider
   // This prevents the "Multiple GoTrueClient instances detected" warning
   const supabaseClient = useState(() => createClientComponentClient())[0];
@@ -156,51 +165,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign out function
   const signOut = async () => {
-    console.log("Auth provider signOut function called");
     try {
-      // Clear user and profile state first to immediately update UI
+      // Clear local state first
       setUser(null);
       setProfile(null);
-      console.log("User and profile state cleared for immediate UI update");
       
-      // First, redirect to home page
-      console.log("Redirecting to home page");
-      router.push("/");
-      
-      // Clear any client-side storage immediately
-      clearClientStorage();
-      
-      // Now sign out on the client side
-      console.log("Calling supabase.auth.signOut()");
-      const { error } = await supabaseClient.auth.signOut();
-      
-      if (error) {
-        console.error("Supabase signOut error:", error);
-        throw error;
-      }
-      
-      // Also sign out on the server side to ensure cookies are cleared
-      console.log("Calling server-side sign out route");
-      const serverSignOutResponse = await fetch("/auth/signout", {
+      // Clear server-side session and get response
+      const response = await fetch("/auth/signout", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
       
-      if (!serverSignOutResponse.ok) {
-        console.error("Server-side sign out failed:", await serverSignOutResponse.text());
-      } else {
-        console.log("Server-side sign out successful");
+      const data = await response.json();
+      
+      // Clear client storage and Supabase state
+      clearClientStorage();
+      await supabaseClient.auth.signOut();
+      
+      // Force a complete page reload to the home page
+      if (data.shouldReload) {
+        window.location.replace("/");
       }
-      
-      console.log("Supabase signOut successful");
-      
-      // Refresh router to update UI
-      console.log("Refreshing router");
-      router.refresh();
-      
-      console.log("Sign out process completed");
     } catch (error) {
       console.error("Error signing out:", error);
       throw error;
@@ -265,4 +250,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-} 
+}

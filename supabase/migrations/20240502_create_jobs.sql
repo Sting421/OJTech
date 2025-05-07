@@ -13,7 +13,7 @@ CREATE TABLE jobs (
     salary_range VARCHAR(100),
     requirements TEXT[] NOT NULL,
     responsibilities TEXT[] NOT NULL,
-    skills_required TEXT[] NOT NULL,
+    required_skills JSONB, -- Allow NULL in database but enforce in frontend
     employer_id UUID NOT NULL REFERENCES profiles(id),
     status VARCHAR(50) DEFAULT 'open' CHECK (status IN ('open', 'closed', 'draft')),
     application_deadline TIMESTAMP WITH TIME ZONE,

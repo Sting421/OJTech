@@ -13,72 +13,78 @@ export async function middleware(request: NextRequest) {
 
   // Special handling for sign out
   const isSignOutProcess = request.headers.get('referer')?.includes('/auth/signout') || 
-                           request.cookies.has('is_signing_out');
+                          request.cookies.has('is_signing_out');
   
   if (isSignOutProcess) {
-    // Allow the sign out process to complete without redirects
+    // For sign out requests, clear the session and cookies
+    if (request.nextUrl.pathname === '/auth/signout') {
+      const response = NextResponse.next();
+      response.cookies.delete('sb-access-token');
+      response.cookies.delete('sb-refresh-token');
+      return response;
+    }
     return res;
   }
 
-  // Check route types
-  const isOnboardingRoute = request.nextUrl.pathname.startsWith("/onboarding");
-  const isAdminRoute = request.nextUrl.pathname.startsWith("/admin");
-  const isEmployerRoute = request.nextUrl.pathname.startsWith("/jobs/create") || 
-                         request.nextUrl.pathname.startsWith("/candidates");
-  const isStudentRoute = request.nextUrl.pathname.startsWith("/track");
+  // Get path info
+  const pathname = request.nextUrl.pathname;
   
-  // Protected routes - redirect to login if not authenticated
-  const protectedRoutes = ["/profile", "/track", "/onboarding", "/admin", "/jobs/create", "/candidates"];
-  const isProtectedRoute = protectedRoutes.some((route) =>
-    request.nextUrl.pathname.startsWith(route)
+  // Define protected routes and their allowed roles
+  const protectedRoutes: Record<string, UserRole[]> = {
+    "/admin": ["admin"],
+    "/employer": ["employer", "admin"],
+    "/track": ["student", "admin"],
+    "/profile": ["student", "employer", "admin"],
+    "/onboarding": ["student", "employer", "admin"],
+    "/jobs/create": ["employer", "admin"],
+    "/candidates": ["employer", "admin"]
+  } as const;
+
+  // Check if current path is protected
+  const matchingRoute = Object.keys(protectedRoutes).find(route => 
+    pathname.startsWith(route)
   );
 
-  if (isProtectedRoute && !session) {
+  const isOnboardingRoute = pathname.startsWith("/onboarding");
+
+  // If not authenticated and trying to access protected route
+  if (matchingRoute && !session) {
     return NextResponse.redirect(new URL("/auth/login", request.url));
   }
-  
-  // If authenticated, check role-based access
-  if (session) {
+
+  // If authenticated, verify role-based access
+  if (session && matchingRoute) {
     try {
-      // Get user's role from profile
       const { data: profileData } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", session.user.id)
         .single();
-      
+
       const userRole = profileData?.role as UserRole;
-      
-      // Check admin routes
-      if (isAdminRoute && userRole !== "admin") {
+      const allowedRoles = protectedRoutes[matchingRoute];
+
+      // Redirect if user's role is not allowed for this route
+      if (!allowedRoles.includes(userRole)) {
         return NextResponse.redirect(new URL("/", request.url));
       }
-      
-      // Check employer routes
-      if (isEmployerRoute && userRole !== "employer" && userRole !== "admin") {
-        return NextResponse.redirect(new URL("/", request.url));
-      }
-      
-      // Check student routes
-      if (isStudentRoute && userRole !== "student" && userRole !== "admin") {
-        return NextResponse.redirect(new URL("/", request.url));
-      }
-      
+
       // For onboarding route, check if already completed
       if (isOnboardingRoute) {
-        const { data: profileData } = await supabase
+        const { data: onboardingData } = await supabase
           .from("profiles")
           .select("has_completed_onboarding, has_uploaded_cv")
           .eq("id", session.user.id)
           .maybeSingle();
-        
-        if (profileData && (profileData.has_completed_onboarding || profileData.has_uploaded_cv)) {
+
+        // If onboarding is completed, redirect away from onboarding route
+        if (onboardingData && (onboardingData.has_completed_onboarding || onboardingData.has_uploaded_cv)) {
           return NextResponse.redirect(new URL("/", request.url));
         }
       }
     } catch (error) {
       console.error("Error checking user role:", error);
-      // On error checking role, redirect to home
+      // On error, redirect to home
       return NextResponse.redirect(new URL("/", request.url));
     }
   }
@@ -90,6 +96,17 @@ export async function middleware(request: NextRequest) {
   );
 
   if (isAuthRoute && session) {
+    // Check user role for redirection after login
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", session.user.id)
+      .single();
+
+    if (profileData?.role === "employer") {
+      return NextResponse.redirect(new URL("/employer/jobs", request.url));
+    }
+    
     return NextResponse.redirect(new URL("/", request.url));
   }
 

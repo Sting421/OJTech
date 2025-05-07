@@ -1,290 +1,131 @@
-# Active Context: OJTech
+# Active Context: OJTech Platform
 
-## Current Focus
+## Current Development Focus
 
-The project is currently focused on completing the student profile management functionality and preparing for the implementation of job listings and the matching algorithm. The primary areas of active development are:
-
-1. **Student Profile Enhancement**
-   - CV uploading and processing
-   - Skills extraction from CVs
-   - Profile completion indicators
-   - Profile optimization suggestions
-
-2. **Job Listings Foundation**
-   - Database schema design for job postings
-   - UI components for job listings
-   - Search and filter functionality
-   - Job details view
-
-3. **Authentication Refinement**
-   - Improved email verification flow
-   - Password reset functionality
-   - Social authentication options
-   - Role-based access control implementation
-
-## Current Work Focus
-
-We are transitioning the application to use a new database schema with the following tables:
-
-1. **profiles** - Core user profiles table with role distinction
-   - Contains basic user information and role (student, employer, admin)
-   - Replaces the previous student_profiles table
-   - Includes avatar_url for profile photos
-   - Tracks onboarding completion with has_completed_onboarding flag
-   - Tracks CV upload status with has_uploaded_cv flag
-
-2. **cvs** - Storage for user curriculum vitae
-   - Links to user profiles
-   - Stores CV file URL (Cloudinary)
-   - Contains extracted skills as structured JSON
-
-3. **jobs** - Job listings posted by employers
-   - Contains job details and required skills
-   - Links to employer profiles
-
-4. **matches** - AI-generated matches between CVs and jobs
-   - Contains match score indicating relevance
-   - Links CVs and jobs for job recommendations
-
-The migration files have been created with proper dependencies and Row Level Security (RLS) policies to ensure data protection. 
-
-Server actions have also been implemented for:
-- Profile management
-- CV uploads and management
-- Job listings
-- CV-Job matching
-
-Upcoming work will focus on UI components to interact with this new schema:
-- Profile editing page (enhanced)
-- CV upload and management interface
-- Job posting interface for employers
-- Match visualization for both students and employers
+We are focusing on implementing the **Application Tracking System** while continuing to fix issues with the **Job Application Process** and the **Employer Job Management** functionality for the OJTech platform.
 
 ## Recent Changes
 
-### Implemented Features
-1. **Authentication System**
-   - Email/password authentication with Supabase
-   - Email verification flow
-   - Protected routes via middleware
-   - Login and registration pages
+### Application Tracking Implementation
+- Connected the Track page with real application data from the database
+- Implemented filtering of applications by status (All, Pending, Reviewed, Shortlisted)
+- Added loading states and empty state handling
+- Created a better UI for displaying application details
+- Added navigation to view job details
+- Improved skill matching display between user skills and job requirements
 
-2. **Student Profile Management**
-   - Basic profile creation and editing
-   - Avatar upload and management with Cloudinary
-   - Form validation with React Hook Form and Zod
-   - Profile data persistence in Supabase
+### Database Constraint Fix for Job Applications
+- Fixed a database constraint issue in the `matches` table that was preventing job applications
+- Updated the `matches_status_check` constraint to include 'applied' and 'declined' status values
+- Created documentation to track database constraints
+- Successfully applied the migration to production
 
-3. **UI Foundation**
-   - Responsive layout with Tailwind CSS
-   - Dark/light mode support
-   - Navigation structure
-   - Toast notification system
-   - shadcn/ui component integration
+### Employer Job Dashboard Implementation
+- Created a tabbed interface for viewing jobs by status (All, Draft, Active, Closed)
+- Implemented job statistics display showing counts by status
+- Added functionality to create new job postings
+- Integrated job deletion with confirmation
+- Built responsive layout for various screen sizes
+- Connected to employer-specific job data via server actions
 
-### Technical Changes
-1. Configured Supabase client for server-side and client-side usage
-2. Set up Cloudinary integration for image and file uploads
-3. Established server action pattern for data operations
-4. Created standardized response handling for API operations
-5. Implemented form validation patterns with Zod schemas
+### Job Status Workflow
+- Implemented the job status lifecycle:
+  - **Draft**: Initial creation state, not visible to students
+  - **Active**: Published state, visible to students for applications
+  - **Closed**: No longer accepting applications, archived
+- Added UI indicators for each status
+- Created server actions to transition between statuses
 
-### Authentication Provider Implementation
-We've added a centralized authentication provider to improve user state management across the application:
+## Technical Considerations
 
-1. **AuthProvider Component**
-   - Created a React context provider to manage authentication state
-   - Handles user authentication status and profile data
-   - Provides signOut and refreshUser functionality
-   - Automatically fetches and updates profile information
-   - Uses a single Supabase client instance to prevent warnings
+### Data Flow
+- Server actions retrieve employer-specific job listings using authenticated user ID
+- Student applications are fetched using the getStudentApplications server action
+- Application data includes related job details through join queries
+- Client-side state management handles filtering by application status
+- Toast notifications provide feedback on successful/failed operations
 
-2. **Auth Integration**
-   - Updated the Navbar to use the AuthProvider
-   - Enhanced Profile page to leverage auth context data
-   - Improved avatar display in navigation
-   - Added proper loading states for auth-dependent components
+### Match Status Management
+- Match status values now include: 'pending', 'accepted', 'rejected', 'applied', 'declined'
+- Job application process updates match status to 'applied'
+- Job declining process updates match status to 'declined'
+- Database constraints enforce valid status values
+- Critical for job application tracking and workflow
 
-3. **refreshUser Function**
-   - Core mechanism for updating the user's authentication state
-   - Fetches the latest user data from Supabase Auth
-   - Ensures a user profile exists through the ensureProfile function
-   - Used throughout the app to refresh user state after critical operations
-   - Particularly important during onboarding to reflect completion status
-
-4. **Profile Creation Safeguards**
-   - Multiple points of profile creation to ensure data consistency:
-     - During registration with createUserProfile
-     - In auth callback route for email verification
-     - In AuthProvider via ensureProfile when user data is loaded
-   - Checks for existing profiles before creating new ones
-   - Ensures consistent user experience across different auth flows
-
-This implementation brings several benefits:
-- Reduces duplicate Supabase authentication code across components
-- Ensures consistent user state throughout the application
-- Provides easy access to both auth user and profile data
-- Improves performance by centralizing auth state changes
-
-### Onboarding Process and Status Tracking
-
-The onboarding process has been implemented with a multi-step flow and careful tracking of completion status:
-
-1. **Onboarding Flag in Database**
-   - Added has_completed_onboarding boolean column to profiles table (default: FALSE)
-   - Added has_uploaded_cv boolean column to profiles table (default: FALSE)
-   - These flags determine whether a user has completed the required onboarding steps
-   - Added database trigger to ensure flag consistency (has_uploaded_cv = TRUE → has_completed_onboarding = TRUE)
-
-2. **Profile-Student Profile Synchronization**
-   - Two tables track user information: profiles and student_profiles
-   - The updateStudentProfile function syncs data between tables and always sets has_completed_onboarding to true
-   - The updateProfile function handles updates to the profiles table and includes sync logic for student_profiles
-   - This ensures data consistency regardless of which update function is called
-
-3. **Critical Onboarding Steps**
-   - During CV upload in onboarding, explicit updates to has_uploaded_cv and has_completed_onboarding
-   - Multiple retry attempts (up to 3) with error handling for this critical update
-   - During GitHub profile save, update to has_completed_onboarding flag
-   - Even when skipping GitHub step, the has_completed_onboarding flag is still set to true
-
-4. **Refresh Mechanism**
-   - After critical onboarding steps, refreshUser() is called to update the local auth state
-   - This ensures the UI reflects the latest onboarding status after each step
-   - Additional refresh calls after completion to ensure consistency
-
-5. **Flag Consistency Safeguards**
-   - Database-level trigger ensures has_completed_onboarding is TRUE whenever has_uploaded_cv is TRUE
-   - Auth provider checks for inconsistent flag states during profile fetch
-   - Automatic flag correction in background when inconsistencies are detected
-   - Onboarding page checks for either flag (has_completed_onboarding OR has_uploaded_cv)
-
-### Database Schema Implementation
-1. **profiles** - Core user profiles table with role distinction
-   - Contains basic user information and role (student, employer, admin)
-   - Replaces the previous student_profiles table
-   - Includes avatar_url for profile photos
-
-2. **cvs** - Storage for user curriculum vitae
-   - Links to user profiles
-   - Stores CV file URL (Cloudinary)
-   - Contains extracted skills as structured JSON
-
-3. **jobs** - Job listings posted by employers
-   - Contains job details and required skills
-   - Links to employer profiles
-
-4. **matches** - AI-generated matches between CVs and jobs
-   - Contains match score indicating relevance
-   - Links CVs and jobs for job recommendations
+### Component Architecture
+- Reusable JobList component displays jobs with appropriate actions
+- JobCard component shows job details in a condensed format
+- Application tracking page uses tabs for status filtering
+- Modal dialogs for confirmation actions (delete, status changes)
+- Tab system for organizing different job views
 
 ## Next Steps
 
-### Immediate Priorities (1-2 Weeks)
-1. Complete CV upload functionality with Cloudinary integration
-2. Implement AI-based skills extraction from CVs
-3. Create job posting data models and server actions
-4. Develop job listing and search interface
-5. Enhance profile completion guidance for students
+### Immediate Tasks
+1. Add detailed application view for students
+2. Implement notifications for application status changes
+3. Complete end-to-end testing of the job application process
+4. Add more comprehensive error handling for the application process
 
-### Short-Term Goals (1-2 Months)
-1. Build the AI-powered job matching algorithm
-2. Develop the employer portal for posting opportunities
-3. Implement application tracking system
-4. Create notification system for application updates
-5. Add analytics dashboard for user activity
+### Upcoming Work
+1. Improve the student-facing job browsing experience
+2. Enhance the job application submission workflow
+3. Build the application review system for employers
+4. Implement the skills matching algorithm for job recommendations
 
-### Long-Term Goals (3+ Months)
-1. Implement administrator dashboard
-2. Add reporting and analytics features
-3. Develop feedback and rating system
-4. Create mobile-responsive views for all features
-5. Optimize performance and scalability
+## Decisions and Trade-offs
 
-## Active Decisions and Considerations
+### Database Schema Evolution
+- Added new valid status values to match status constraint instead of removing it
+- Created documentation to track database constraints for future reference
+- Chose to use database-level constraints to ensure data integrity
 
-### Technical Decisions Under Consideration
-1. **AI Provider Selection**
-   - Evaluating OpenAI vs. Google Gemini for CV analysis and job matching
-   - Considering cost, accuracy, and integration complexity
-   - Need to determine whether to use embeddings or completion APIs
+### Application Tracking UX
+- Used tabbed interface for better organization of different application statuses
+- Implemented loading states for better user experience
+- Added empty state handling with helpful guidance
+- Displayed detailed job information for better context
 
-2. **File Processing Approach**
-   - Determining whether to process CVs on client or server side
-   - Evaluating PDF extraction libraries for text extraction
-   - Considering privacy implications of CV processing
+### Authentication Requirements
+- All job management routes and actions are protected, requiring employer authentication
+- Application tracking requires student authentication
+- Server actions verify user role before allowing operations
 
-3. **Real-time Features**
-   - Assessing need for real-time notifications
-   - Evaluating Supabase Realtime vs. alternative solutions
-   - Considering implementation complexity vs. user benefit
+### UI/UX Considerations
+- Prioritized simplicity in the dashboard layout for easy job management
+- Used visual indicators (icons, colors) to clearly show job status
+- Added confirmation dialogs for destructive actions
+- Implemented loading states to provide feedback during data operations
 
-### Design Considerations
-1. **Job Matching UX**
-   - Determining how to present match scores and recommendations
-   - Designing intuitive job search and filter interfaces
-   - Creating visual indicators for match quality
+### Performance Optimization
+- Fetch jobs on component mount and after state-changing operations
+- Filter applications client-side to reduce server requests
+- Use efficient state updates for real-time UI changes
+- Limit initial application fetch to 50 records for faster loading
 
-2. **Profile Completion Guidance**
-   - Developing profile strength indicators
-   - Designing actionable improvement suggestions
-   - Creating intuitive CV upload and management interface
+## Integration Points
 
-3. **Application Tracking**
-   - Designing status visualization for applications
-   - Creating interaction points for application updates
-   - Developing notification strategy for status changes
+### Supabase Database
+- Jobs table stores all job posting data
+- Job_applications table tracks applications submitted by students
+- Matches table tracks relationships between students and jobs
+- RLS policies control access based on user roles
+- Queries filter data by user ID for security
 
-### Open Questions
-1. How to effectively extract and standardize skills from diverse CV formats?
-2. What metrics should be used to determine job-candidate match quality?
-3. How to handle privacy concerns with AI processing of personal data?
-4. What level of customization should employers have for job postings?
-5. How to implement effective verification for employer accounts?
+### Authentication System
+- Middleware protects routes based on user roles
+- User role verification prevents unauthorized access
+- Session data provides user ID for queries
 
-### New User Onboarding Flow
-We've implemented a guided onboarding flow for new users:
+### UI Framework
+- Uses shadcn/ui components for consistent styling
+- Tailwind CSS for responsive design
+- Toast system for user notifications
 
-1. **Registration Process**
-   - User registers with email/password or GitHub OAuth
-   - Backend creates a basic profile record on sign-up
-   - User is redirected to onboarding flow after email verification
+## Open Questions
 
-2. **Onboarding Screens**
-   - Welcome screen with instructions
-   - CV upload step (required to proceed)
-   - GitHub profile collection (auto-populated for GitHub OAuth users)
-   - Completion screen directing to profile
-
-3. **Technical Implementation**
-   - Multi-step form with progress tracking
-   - CV validation and Cloudinary upload
-   - Automatic GitHub profile detection
-   - Auth callback routing logic for redirections
-   - Robust status tracking with has_completed_onboarding flag
-   - Multiple refresh points to ensure state consistency
-   - Smart redirection that checks onboarding completion status before redirecting
-
-This implementation ensures all students have a CV uploaded before they can use the platform fully, improving match quality between students and opportunities.
-
-### Authentication Flow Improvements
-
-We've enhanced the authentication flow to provide a better user experience:
-
-1. **Smarter Redirection Logic**
-   - Auth callback now checks if onboarding is already completed before redirecting
-   - Middleware prevents unnecessary onboarding redirects for users who've already completed it
-   - Multiple status flags (has_completed_onboarding OR has_uploaded_cv) are checked
-   - Background fixes for flag inconsistencies without disrupting user flow
-
-2. **Login Process Optimization**
-   - Users are directed to homepage after login instead of onboarding if they've already completed it
-   - Middleware intelligently checks profile status before allowing access to onboarding
-   - Multiple data consistency checks throughout the authentication process
-
-3. **Flag Consistency Mechanism**
-   - Database trigger ensures has_completed_onboarding is set when has_uploaded_cv is true
-   - Client-side checks correct flag inconsistencies in the background
-   - Flag updates synchronize between profiles and student_profiles tables
-
-These improvements ensure that returning users have a streamlined experience without being forced through onboarding multiple times, while new users are still properly guided through the required steps. 
+1. Should we add more status types for the job application workflow?
+2. What metrics should we track for job application performance?
+3. How can we optimize the matching algorithm for the most relevant job recommendations?
+4. Should we implement batch operations for managing multiple job applications?
+5. How should we notify students of application status changes? 

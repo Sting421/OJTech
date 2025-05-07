@@ -5,7 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
-import { AuthProvider } from "@/providers/auth-provider";
+import { ClientAuthProvider } from "@/providers/client-auth-provider";
+import { OnboardingCheckLayout } from '@/components/layouts/onboarding-check-layout';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,22 +21,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} flex flex-col min-h-screen`}>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${inter.className} bg-black text-white min-h-screen`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="dark"
+          enableSystem={false}
           disableTransitionOnChange
         >
-          <AuthProvider>
+          <ClientAuthProvider>
             <Navbar />
             <main className="flex-grow">
-              {children}
+              <OnboardingCheckLayout>
+                {children}
+              </OnboardingCheckLayout>
             </main>
             <Footer />
             <Toaster />
-          </AuthProvider>
+          </ClientAuthProvider>
         </ThemeProvider>
       </body>
     </html>

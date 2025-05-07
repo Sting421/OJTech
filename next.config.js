@@ -4,9 +4,10 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   experimental: {
-    serverActions: {
-      bodySizeLimit: '10mb'
-    },
+    serverActions: true,
+  },
+  images: {
+    domains: ['res.cloudinary.com'],
   },
 };
 

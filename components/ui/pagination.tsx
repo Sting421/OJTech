@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 
 interface PaginationProps {
   currentPage: number;
@@ -17,7 +17,7 @@ interface PaginationProps {
   className?: string;
 }
 
-export function Pagination({
+export function CustomPagination({
   currentPage,
   totalPages,
   onPageChange,
@@ -214,7 +214,6 @@ const PaginationEllipsis = ({
 PaginationEllipsis.displayName = 'PaginationEllipsis';
 
 export {
-  Pagination,
   PaginationContent,
   PaginationEllipsis,
   PaginationItem,

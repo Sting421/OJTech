@@ -22,7 +22,7 @@ export async function getMatchById(id: string): Promise<ApiResponse<Match>> {
   }
 }
 
-// Get matches for a specific CV
+// Get matches for a specific CV (deprecated - use getMatchesByStudentId instead)
 export async function getMatchesByCvId(
   cvId: string,
   page = 1,
@@ -49,6 +49,9 @@ export async function getMatchesByCvId(
       return { success: false, error: "You do not have permission to view these matches" };
     }
 
+    // Instead of matching by CV ID, get the student profile ID (which is the user ID)
+    // and use that to look up matches
+    
     // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -56,7 +59,7 @@ export async function getMatchesByCvId(
     const { data: matches, error, count } = await supabaseClient
       .from("matches")
       .select("*, jobs(title, description)", { count: "exact" })
-      .eq("cv_id", cvId)
+      .eq("student_id", user.id)  // Use student_id instead of cv_id
       .order("match_score", { ascending: false })
       .range(from, to);
 
@@ -108,7 +111,7 @@ export async function getMatchesByJobId(
 
     const { data: matches, error, count } = await supabaseClient
       .from("matches")
-      .select("*, cvs(user_id, profiles:user_id(full_name, avatar_url))", { count: "exact" })
+      .select("*, student_profiles:student_id(id, full_name, photo_url)", { count: "exact" })
       .eq("job_id", jobId)
       .order("match_score", { ascending: false })
       .range(from, to);
@@ -130,14 +133,19 @@ export async function getMatchesByJobId(
 
 // Create a match
 export async function createMatch(
-  data: Omit<Match, "id" | "created_at">
+  data: {
+    student_id: string;
+    job_id: string;
+    match_score: number;
+    status?: string;
+  }
 ): Promise<ApiResponse<Match>> {
   try {
-    // Check if a match with this CV and job already exists
+    // Check if a match with this student and job already exists
     const { data: existingMatch, error: checkError } = await supabase
       .from("matches")
       .select("id")
-      .eq("cv_id", data.cv_id)
+      .eq("student_id", data.student_id)
       .eq("job_id", data.job_id)
       .maybeSingle();
 
@@ -173,96 +181,154 @@ export async function createMatch(
 
 // Batch create matches (for AI-based matching)
 export async function batchCreateMatches(
-  matches: Omit<Match, "id" | "created_at">[]
+  matches: Array<{
+    student_id: string;
+    job_id: string;
+    match_score: number;
+    status?: string;
+  }>
 ): Promise<ApiResponse<{ created: number, updated: number }>> {
   try {
+    console.log(`[MATCHES] Batch processing ${matches.length} matches`);
+    
+    if (!matches || matches.length === 0) {
+      return {
+        success: true,
+        data: { created: 0, updated: 0 }
+      };
+    }
+    
+    // Process in batches to avoid overwhelming the database
+    const BATCH_SIZE = 10;
     let created = 0;
     let updated = 0;
-
-    // Process in batches to avoid overwhelming the database
-    const batchSize = 50;
-    for (let i = 0; i < matches.length; i += batchSize) {
-      const batch = matches.slice(i, i + batchSize);
+    
+    for (let i = 0; i < matches.length; i += BATCH_SIZE) {
+      const batch = matches.slice(i, i + BATCH_SIZE);
+      console.log(`[MATCHES] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} matches)`);
       
-      for (const match of batch) {
-        // Check if match already exists
-        const { data: existingMatch, error: checkError } = await supabase
-          .from("matches")
-          .select("id")
-          .eq("cv_id", match.cv_id)
-          .eq("job_id", match.job_id)
-          .maybeSingle();
-
-        if (checkError) throw checkError;
-        
-        if (existingMatch) {
-          // Update existing match
-          const { error } = await supabase
-            .from("matches")
-            .update({ match_score: match.match_score })
-            .eq("id", existingMatch.id);
-
-          if (error) throw error;
-          updated++;
-        } else {
-          // Create new match
-          const { error } = await supabase
-            .from("matches")
-            .insert([match]);
-
-          if (error) throw error;
-          created++;
-        }
+      const { data, error } = await supabase
+        .from("matches")
+        .upsert(batch, {
+          onConflict: "student_id,job_id", 
+          ignoreDuplicates: false
+        })
+        .select();
+      
+      if (error) {
+        console.error(`[MATCHES] Error in batch ${Math.floor(i/BATCH_SIZE) + 1}:`, error);
+        throw error;
       }
+      
+      // Count how many records were created vs updated
+      const newMatches = data.filter(m => m.created_at === m.updated_at).length;
+      created += newMatches;
+      updated += (data.length - newMatches);
+      
+      console.log(`[MATCHES] Batch results: ${newMatches} created, ${data.length - newMatches} updated`);
     }
-
-    return { 
-      success: true, 
-      data: { created, updated } 
+    
+    console.log(`[MATCHES] Batch processing completed. Total: ${created} created, ${updated} updated`);
+    
+    return {
+      success: true,
+      data: { created, updated }
     };
   } catch (error) {
-    console.error("Error in batch match creation:", error);
-    return { success: false, error: "Failed to create/update matches in batch" };
+    console.error("[MATCHES] Error in batch create matches:", error);
+    return {
+      success: false,
+      error: "Failed to process matches"
+    };
   }
 }
 
-// Delete match
-export async function deleteMatch(id: string): Promise<ApiResponse<void>> {
+/**
+ * Delete a match by its ID
+ */
+export async function deleteMatch(id: string): Promise<ApiResponse<null>> {
   try {
-    const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
-
-    if (!user) {
-      return { success: false, error: "No authenticated user found" };
-    }
-
-    // Check if user has permission to delete this match
-    const { data: match, error: matchError } = await supabaseClient
-      .from("matches")
-      .select("job_id, cvs(user_id), jobs(employer_id)")
-      .eq("id", id)
-      .single();
-
-    if (matchError) throw matchError;
-    
-    const hasPermission = 
-      match.cvs?.user_id === user.id || // CV owner
-      match.jobs?.employer_id === user.id; // Job owner
-    
-    if (!hasPermission) {
-      return { success: false, error: "You do not have permission to delete this match" };
-    }
-
-    const { error } = await supabaseClient
+    const { error } = await supabase
       .from("matches")
       .delete()
       .eq("id", id);
 
     if (error) throw error;
     
-    return { success: true };
+    return {
+      success: true,
+      data: null
+    };
   } catch (error) {
     console.error("Error deleting match:", error);
-    return { success: false, error: "Failed to delete match" };
+    return {
+      success: false,
+      error: "Failed to delete match"
+    };
+  }
+}
+
+/**
+ * Get matches for a student by their ID
+ */
+export async function getMatchesByStudentId(studentId: string): Promise<ApiResponse<Match[]>> {
+  try {
+    const { data, error } = await supabase
+      .from("matches")
+      .select(`
+        *,
+        jobs:job_id (
+          id,
+          title,
+          company_name,
+          location,
+          job_type,
+          salary_range,
+          description,
+          status
+        )
+      `)
+      .eq("student_id", studentId)
+      .order("match_score", { ascending: false });
+
+    if (error) throw error;
+    
+    return {
+      success: true,
+      data
+    };
+  } catch (error) {
+    console.error("Error getting matches by student ID:", error);
+    return {
+      success: false,
+      error: "Failed to get matches"
+    };
+  }
+}
+
+/**
+ * Update a match status
+ */
+export async function updateMatchStatus(id: string, status: string): Promise<ApiResponse<Match>> {
+  try {
+    const { data, error } = await supabase
+      .from("matches")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    
+    return {
+      success: true,
+      data
+    };
+  } catch (error) {
+    console.error("Error updating match status:", error);
+    return {
+      success: false,
+      error: "Failed to update match status"
+    };
   }
 } 
