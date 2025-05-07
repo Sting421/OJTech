@@ -498,7 +498,8 @@ export async function uploadAndParseCV(
         
       // Prepare update data
       const updateData: any = { 
-        has_uploaded_cv: true 
+        has_uploaded_cv: true,
+        has_completed_onboarding: true // Mark onboarding as completed immediately
       };
       
       // Only set GitHub profile if it was found and the user doesn't already have one
@@ -516,7 +517,7 @@ export async function uploadAndParseCV(
       if (updateError) {
         console.error("Error updating profile:", updateError);
       } else {
-        console.log("Profile CV upload flag and GitHub profile updated successfully");
+        console.log("Profile CV upload flag and onboarding completion updated successfully");
       }
     } catch (profileError) {
       // Log error but don't fail the entire operation
