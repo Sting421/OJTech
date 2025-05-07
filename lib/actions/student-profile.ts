@@ -378,9 +378,10 @@ export async function populateStudentProfileFromCv(userId: string): Promise<{ su
     }
     
     // Set CV URL if available
-    if (cvResult.data.file_url) {
-      profileData.cv_url = cvResult.data.file_url;
-    }
+    // file_url no longer exists in the CV table
+    // if (cvResult.data.file_url) {
+    //   profileData.cv_url = cvResult.data.file_url;
+    // }
     
     // Update or create the student profile
     if (studentProfile) {

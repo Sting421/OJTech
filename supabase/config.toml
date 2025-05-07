@@ -1,0 +1,75 @@
+# A string used to distinguish different Supabase projects on the same host. Defaults to the working
+# directory name when running `supabase init`.
+project_id = "ojtech"
+
+[auth]
+# The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
+# in emails.
+site_url = "http://localhost:3000"
+# A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
+additional_redirect_urls = ["https://localhost:3000"]
+# How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
+jwt_expiry = 3600
+# If disabled, the refresh token will never expire.
+enable_refresh_token_rotation = true
+# Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
+refresh_token_reuse_interval = 10
+# Whether to enable email confirmations on user signup.
+enable_signup = true
+
+[auth.email]
+# Allow/disallow new user signups via email to your project.
+enable_signup = true
+# If enabled, a user will be required to confirm any email change on both the old, and new email
+# addresses. If disabled, only the new email is required to confirm.
+double_confirm_changes = true
+# If enabled, users need to confirm their email address before signing in.
+enable_confirmations = true
+
+[auth.external]
+# Enable/disable different external OAuth providers.
+apple.enabled = false
+azure.enabled = false
+bitbucket.enabled = false
+discord.enabled = false
+facebook.enabled = false
+github.enabled = false
+gitlab.enabled = false
+google.enabled = false
+keycloak.enabled = false
+linkedin.enabled = false
+notion.enabled = false
+spotify.enabled = false
+slack.enabled = false
+twitch.enabled = false
+twitter.enabled = false
+workos.enabled = false
+
+# Configure Storage
+[storage]
+# The maximum file size allowed (in bytes).
+file_size_limit = "50MiB"
+
+[api]
+# Port to use for the API URL.
+port = 54321
+# Enable/disable API development mode.
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+# Configure Edge Functions
+[functions]
+[functions.job-matching]
+verify_jwt = false
+
+[database]
+# Port to use for the local database URL.
+port = 54322
+# The database major version to use.
+major_version = 15
+
+# Configure Postgres restore
+[restore]
+# The minimum acceptable restore time in milliseconds.
+minimum_acceptable_restore_time = 10000

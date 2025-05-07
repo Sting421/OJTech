@@ -18,15 +18,15 @@ export interface Profile {
 export interface CV {
   id: string;
   user_id: string;
-  file_url: string;
   skills: Record<string, any> | null;
-  upload_date: string;
+  upload_date?: string;
   created_at: string;
   version?: number;
   is_active?: boolean;
   analysis_results?: Record<string, any> | null;
   last_analyzed_at?: string;
   updated_at?: string;
+  extracted_skills?: string[] | null;
 }
 
 export interface Job {

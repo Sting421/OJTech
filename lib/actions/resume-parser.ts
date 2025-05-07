@@ -428,7 +428,7 @@ export async function uploadAndParseCV(
   try {
     // First, upload the file to Cloudinary - we'll store it externally even though we don't track the URL
     console.log("Uploading CV to Cloudinary...");
-    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs');
+    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs', 'application/pdf');
     
     if (!uploadResult.success || !uploadResult.data) {
       console.error("Failed to upload CV to Cloudinary:", uploadResult.error);
@@ -498,7 +498,8 @@ export async function uploadAndParseCV(
         
       // Prepare update data
       const updateData: any = { 
-        has_uploaded_cv: true 
+        has_uploaded_cv: true,
+        has_completed_onboarding: true // Mark onboarding as completed immediately
       };
       
       // Only set GitHub profile if it was found and the user doesn't already have one
@@ -516,7 +517,7 @@ export async function uploadAndParseCV(
       if (updateError) {
         console.error("Error updating profile:", updateError);
       } else {
-        console.log("Profile CV upload flag and GitHub profile updated successfully");
+        console.log("Profile CV upload flag and onboarding completion updated successfully");
       }
     } catch (profileError) {
       // Log error but don't fail the entire operation

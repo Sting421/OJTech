@@ -1,54 +1,76 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Eye } from "lucide-react";
+import { Eye, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 interface ResumePreviewButtonProps {
   fileUrl?: string | null;
   cvId?: string;
   label?: string;
+  variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
+  size?: "default" | "sm" | "lg" | "icon";
+  className?: string;
+  showIcon?: boolean;
 }
 
 export function ResumePreviewButton({ 
   fileUrl, 
   cvId,
-  label = "Preview Resume" 
+  label = "Preview Resume",
+  variant = "outline",
+  size = "sm",
+  className = "",
+  showIcon = true
 }: ResumePreviewButtonProps) {
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
   
   const handlePreview = async () => {
-    if (!fileUrl) {
-      console.error("No file URL available for preview");
+    // If we have a direct fileUrl, use it
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
       return;
     }
     
-    setLoading(true);
-    
-    try {
-      // Open the file URL in a new window
-      window.open(fileUrl, '_blank');
-    } catch (error) {
-      console.error("Error opening resume preview:", error);
-    } finally {
-      setLoading(false);
+    // Otherwise, if we have a cvId, show a message since we can't preview without a file_url
+    if (cvId) {
+      toast({
+        title: "CV Preview Unavailable",
+        description: "Direct CV preview is not available. Please download and view the file locally.",
+        variant: "default",
+      });
+      return;
     }
+    
+    // If neither fileUrl nor cvId is provided
+    toast({
+      title: "Error",
+      description: "No CV information available for preview",
+      variant: "destructive",
+    });
   };
   
-  if (!fileUrl) {
+  // If neither fileUrl nor cvId is provided, don't render the button
+  if (!fileUrl && !cvId) {
     return null;
   }
   
   return (
     <Button
-      variant="outline"
-      size="sm"
-      className="flex items-center gap-1"
+      variant={variant}
+      size={size}
+      className={`${showIcon ? "flex items-center gap-1" : ""} ${className}`}
       onClick={handlePreview}
       disabled={loading}
     >
-      <Eye className="h-4 w-4" />
-      <span>{label}</span>
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : showIcon ? (
+        <Eye className="h-4 w-4" />
+      ) : null}
+      {label && <span>{label}</span>}
     </Button>
   );
 } 
