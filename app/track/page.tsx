@@ -1,101 +1,267 @@
 'use client'
 
-import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import React, { useEffect, useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { getCurrentUserMostRecentCv } from "@/lib/actions/cv";
+import { Progress } from "@/components/ui/progress";
+import { useAuth } from "@/providers/auth-provider";
+import { getStudentApplications } from "@/lib/actions/application";
+import { Loader2, Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, ArrowRight, Building } from "lucide-react";
+import { formatDate } from "@/lib/utils/date-utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { ApplicationCard } from "@/components/ui/application-card";
 
-// Mock data - will be replaced with Supabase data later
-const applications = [
-  {
-    id: 1,
-    jobTitle: "Frontend Developer",
-    company: "Tech Corp",
-    appliedDate: "2024-03-25",
-    status: "Under Review",
-    lastUpdated: "2024-03-27",
-    nextStep: "Technical Interview"
-  },
-  {
-    id: 2,
-    jobTitle: "Backend Engineer",
-    company: "Data Systems",
-    appliedDate: "2024-03-20",
-    status: "Initial Screening",
-    lastUpdated: "2024-03-22",
-    nextStep: "HR Interview"
-  },
-  {
-    id: 3,
-    jobTitle: "UX Designer",
-    company: "Creative Studio",
-    appliedDate: "2024-03-15",
-    status: "Shortlisted",
-    lastUpdated: "2024-03-18",
-    nextStep: "Portfolio Review"
-  }
-]
+// Add custom CSS for progress indicators
+import "./track.css";
 
+// Map job application status to display colors
 const getStatusColor = (status: string) => {
   const statusColors = {
-    'Under Review': 'bg-yellow-500',
-    'Initial Screening': 'bg-blue-500',
-    'Shortlisted': 'bg-green-500',
-    'Rejected': 'bg-red-500',
-    'Hired': 'bg-purple-500'
+    'pending': 'bg-yellow-500',
+    'reviewed': 'bg-blue-500',
+    'shortlisted': 'bg-green-500',
+    'rejected': 'bg-red-500',
+    'hired': 'bg-purple-500'
   } as const
 
   return statusColors[status as keyof typeof statusColors] || 'bg-gray-500'
 }
 
+// Calculate match percentage based on skills
+const calculateSkillMatch = (userSkills: string[], requiredSkills: string[]) => {
+  if (!userSkills || !requiredSkills || requiredSkills.length === 0) return 0;
+  
+  // Convert to lowercase for case-insensitive matching
+  const userSkillsLower = userSkills.map(skill => skill.toLowerCase());
+  const requiredSkillsLower = requiredSkills.map(skill => skill.toLowerCase());
+  
+  // Count matches
+  let matches = 0;
+  for (const skill of requiredSkillsLower) {
+    if (userSkillsLower.some(userSkill => userSkill.includes(skill) || skill.includes(userSkill))) {
+      matches++;
+    }
+  }
+  
+  return Math.round((matches / requiredSkills.length) * 100);
+};
+
+// Get the next step message based on application status
+const getNextStepMessage = (status: string) => {
+  switch (status) {
+    case 'pending':
+      return 'Your application is awaiting review by the employer';
+    case 'reviewed':
+      return 'Employer has reviewed your application and is considering shortlisting';
+    case 'shortlisted':
+      return 'Congratulations! You have been shortlisted for an interview';
+    case 'rejected':
+      return 'The employer has chosen to proceed with other candidates';
+    case 'hired':
+      return 'Congratulations! You have been hired for this position';
+    default:
+      return 'Application status is being processed';
+  }
+};
+
 export default function TrackApplicationPage() {
+  const [userSkills, setUserSkills] = useState<string[]>([]);
+  const [applications, setApplications] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("all");
+  const { profile } = useAuth();
+  const router = useRouter();
+  const { toast } = useToast();
+  
+  // Load CV skills
+  useEffect(() => {
+    async function loadCvSkills() {
+      try {
+        // First check if skills are in the profile cv_data
+        if (profile?.cv_data?.extracted_skills || profile?.cv_data?.skills) {
+          const skills = profile.cv_data.extracted_skills || profile.cv_data.skills;
+          console.log("Using skills from profile cv_data:", skills);
+          setUserSkills(skills);
+          return;
+        }
+        
+        // If not in profile, try to get from CV
+        const result = await getCurrentUserMostRecentCv();
+        if (result.success && result.data && result.data.skills) {
+          console.log("Using skills from CV record:", result.data.skills.skills);
+          setUserSkills(result.data.skills.skills || []);
+        }
+      } catch (error) {
+        console.error("Error loading CV skills:", error);
+      }
+    }
+    
+    loadCvSkills();
+  }, [profile]);
+  
+  // Load applications
+  useEffect(() => {
+    async function loadApplications() {
+      try {
+        setIsLoading(true);
+        const result = await getStudentApplications(1, 50); // Get up to 50 applications
+        
+        if (result.success && result.data) {
+          setApplications(result.data.applications);
+        } else {
+          toast({
+            title: "Error",
+            description: result.error || "Failed to load applications",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Error loading applications:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load your applications",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadApplications();
+  }, [toast]);
+
+  // Filter applications based on active tab
+  const filteredApplications = activeTab === "all" 
+    ? applications
+    : applications.filter(app => app.status === activeTab);
+  
+  // Handler for viewing job details
+  const handleViewJobDetails = (jobId: string) => {
+    // Since we've removed opportunities/[id], let's just provide feedback to the user
+    toast({
+      title: "Job Details",
+      description: "Detailed job information is now available directly on this page",
+    });
+  };
+  
   return (
-    <main className="container mx-auto py-8">
-      <h1 className="text-4xl font-bold mb-8">Track Your Applications</h1>
-      
-      <div className="space-y-6">
-        {applications.map(app => (
-          <Card key={app.id}>
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle>{app.jobTitle}</CardTitle>
-                  <CardDescription>{app.company}</CardDescription>
+    <main className="container mx-auto py-10 px-4 min-h-screen">
+      <div className="max-w-6xl mx-auto">
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight">Track Your Applications</h1>
+              <p className="text-muted-foreground mt-2">
+                Monitor your job applications and track their progress
+              </p>
+            </div>
+            <Button
+              onClick={() => router.push('/opportunities')}
+              className="self-start md:self-end"
+            >
+              Browse Jobs <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+
+          {userSkills.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-xl">Skills from Your CV</CardTitle>
+                <CardDescription>These skills are used to match you with job opportunities</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {userSkills.slice(0, 15).map((skill, index) => (
+                    <Badge key={index} variant="secondary">
+                      {skill}
+                    </Badge>
+                  ))}
+                  {userSkills.length > 15 && (
+                    <Badge variant="outline">+{userSkills.length - 15} more</Badge>
+                  )}
                 </div>
-                <Badge className={`${getStatusColor(app.status)} text-white`}>
-                  {app.status}
-                </Badge>
+              </CardContent>
+            </Card>
+          )}
+          
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <TabsList className="h-auto p-1">
+                <TabsTrigger value="all" className="rounded-md px-3 py-1.5">
+                  All Applications
+                </TabsTrigger>
+                <TabsTrigger value="pending" className="rounded-md px-3 py-1.5">
+                  Pending
+                </TabsTrigger>
+                <TabsTrigger value="reviewed" className="rounded-md px-3 py-1.5">
+                  Reviewed
+                </TabsTrigger>
+                <TabsTrigger value="shortlisted" className="rounded-md px-3 py-1.5">
+                  Shortlisted
+                </TabsTrigger>
+              </TabsList>
+              <div className="text-sm text-muted-foreground">
+                {filteredApplications.length} 
+                {activeTab === "all" 
+                  ? " total applications" 
+                  : ` ${activeTab} application${filteredApplications.length !== 1 ? 's' : ''}`}
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="font-medium">Applied Date:</span>
-                    <span>{app.appliedDate}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Last Updated:</span>
-                    <span>{app.lastUpdated}</span>
-                  </div>
+            </div>
+            
+            <TabsContent value={activeTab} className="mt-0">
+              {isLoading ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-16">
+                    <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+                    <p className="text-muted-foreground">Loading your applications...</p>
+                  </CardContent>
+                </Card>
+              ) : filteredApplications.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-16">
+                    <div className="bg-muted rounded-full p-3 mb-4">
+                      <Briefcase className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2">No applications found</h3>
+                    <p className="text-muted-foreground text-center max-w-md mb-6">
+                      {activeTab === "all" 
+                        ? "You haven't applied to any jobs yet. Start exploring opportunities to kickstart your career." 
+                        : `You don't have any applications with '${activeTab}' status.`}
+                    </p>
+                    {activeTab === "all" && (
+                      <Button onClick={() => router.push('/opportunities')}>
+                        Browse Job Opportunities
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {filteredApplications.map(app => {
+                    // Get required skills from job data if available
+                    const requiredSkills = app.job?.required_skills || [];
+                    const matchPercentage = calculateSkillMatch(userSkills, Array.isArray(requiredSkills) ? requiredSkills : []);
+                    
+                    return (
+                      <ApplicationCard
+                        key={app.id}
+                        application={app}
+                        userSkills={userSkills}
+                        matchPercentage={matchPercentage}
+                        onViewDetails={handleViewJobDetails}
+                      />
+                    );
+                  })}
                 </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="font-medium">Next Step:</span>
-                    <span>{app.nextStep}</span>
-                  </div>
-                  <div className="flex justify-end">
-                    <button 
-                      className="text-blue-500 hover:text-blue-700 font-medium"
-                      onClick={() => alert('Details view coming soon!')}
-                    >
-                      View Details →
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </main>
   )

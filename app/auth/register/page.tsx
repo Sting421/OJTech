@@ -1,139 +1,211 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import Link from "next/link";
-import { useState } from "react";
-import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+
+const registerSchema = z.object({
+  fullName: z.string().min(3, "Full name must be at least 3 characters"),
+  email: z
+    .string()
+    .email("Please enter a valid email address")
+    .refine((email) => email.includes(".edu") || email.includes("ac.") || email.includes("edu."), {
+      message: "Please use a valid educational email address",
+    }),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      fullName: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
-
+  const onSubmit = async (values: RegisterFormValues) => {
+    setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
+      // Register the user with Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: values.email,
+        password: values.password,
         options: {
-          emailRedirectTo: `${location.origin}/auth/callback`,
+          data: {
+            full_name: values.fullName,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
-      if (error) {
-        setError(error.message);
-        return;
+      if (error) throw error;
+      
+      // If registration was successful
+      if (data.user) {
+        try {
+          // Directly create a profile in case the database trigger doesn't work
+          // Import the server function using next/dynamic to handle server actions in client components
+          const { createUserProfile } = await import('@/lib/actions/auth-trigger');
+          await createUserProfile(data.user.id, values.email, values.fullName);
+        } catch (profileError) {
+          console.error("Error creating profile:", profileError);
+          // Continue anyway, the auth callback will try again
+        }
       }
 
-      window.location.href = "/auth/verify-email";
-    } catch (error) {
-      setError("An error occurred during registration");
+      toast({
+        title: "Registration successful!",
+        description: "Please check your email to verify your account.",
+      });
+
+      // For development purposes, if email verification is disabled
+      if (data.session) {
+        router.push('/onboarding');
+      } else {
+        // Show verification message for production where email verification is required
+        router.push('/auth/verify-email');
+      }
+    } catch (error: any) {
+      toast({
+        title: "Registration failed",
+        description: error.message || "An error occurred during registration",
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold">Create an account</h2>
-          <p className="text-gray-600 mt-2">Sign up to get started</p>
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md p-6 space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold">Create your account</h1>
+          <p className="text-muted-foreground">Sign up to get started with OJTech</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="mt-1"
+        <div className="space-y-4">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="fullName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Full Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="John Doe" disabled={loading} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="mt-1"
-                minLength={6}
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>School Email</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="email" placeholder="john.doe@university.edu" disabled={loading} />
+                    </FormControl>
+                    <FormDescription>
+                      Please use your educational email address
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            <div>
-              <Label htmlFor="confirm-password">Confirm Password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                className="mt-1"
-                minLength={6}
+
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="password" placeholder="••••••••" disabled={loading} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </div>
 
-          {error && (
-            <p className="text-sm text-red-500 mt-2">{error}</p>
-          )}
+              <FormField
+                control={form.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm Password</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="password" placeholder="••••••••" disabled={loading} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Creating account..." : "Create account"}
-          </Button>
-        </form>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Creating account..." : "Create account"}
+              </Button>
+            </form>
+          </Form>
 
-        <div className="mt-8">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300" />
+              <span className="w-full border-t" />
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-background text-muted-foreground">
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
                 Or continue with
               </span>
             </div>
           </div>
 
-          <div className="mt-6">
-            <OAuthButtons />
+          <OAuthButtons />
+
+          <div className="text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link href="/auth/login" className="font-medium text-primary underline-offset-4 hover:underline">
+              Sign in
+            </Link>
           </div>
         </div>
-
-        <p className="text-center text-sm text-gray-600 mt-8">
-          Already have an account?{" "}
-          <Link
-            href="/auth/login"
-            className="font-medium text-blue-600 hover:text-blue-500"
-          >
-            Sign in
-          </Link>
-        </p>
-      </div>
+      </Card>
     </div>
   );
 }

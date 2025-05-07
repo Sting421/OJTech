@@ -12,7 +12,7 @@ CREATE TABLE student_profiles (
     bio TEXT,
     github_profile TEXT CHECK (length(github_profile) <= 500),
     school_email VARCHAR(255) UNIQUE NOT NULL,
-    personal_email VARCHAR(255) UNIQUE,
+    personal_email VARCHAR(255),
     phone_number VARCHAR(20),
     country VARCHAR(100) DEFAULT 'Philippines',
     region_province VARCHAR(100),
@@ -27,6 +27,7 @@ CREATE TABLE student_profiles (
 -- Create indexes for faster searches
 CREATE INDEX idx_student_profiles_full_name ON student_profiles(full_name);
 CREATE INDEX idx_student_profiles_university ON student_profiles(university);
+CREATE INDEX idx_student_profiles_school_email ON student_profiles(school_email);
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -43,29 +44,23 @@ CREATE TRIGGER update_student_profiles_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Add Row Level Security (RLS) policies
+-- Add Row Level Security (RLS)
 ALTER TABLE student_profiles ENABLE ROW LEVEL SECURITY;
 
--- Create policies
--- Allow anyone to read student profiles
-CREATE POLICY "Allow public read access" ON student_profiles
-    FOR SELECT USING (true);
+-- Create policy to allow users to read their own profiles
+CREATE POLICY "Users can read their own profiles"
+    ON student_profiles
+    FOR SELECT
+    USING (auth.uid() = id);
 
--- Allow authenticated users to create their own profile
-CREATE POLICY "Allow authenticated users to create their profile" ON student_profiles
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (
-        auth.uid()::text = school_email -- Assuming school_email matches auth.uid
-    );
-
--- Allow users to update their own profile
-CREATE POLICY "Allow users to update their own profile" ON student_profiles
+-- Create policy to allow users to update their own profiles
+CREATE POLICY "Users can update their own profiles"
+    ON student_profiles
     FOR UPDATE
-    TO authenticated
-    USING (
-        auth.uid()::text = school_email
-    )
-    WITH CHECK (
-        auth.uid()::text = school_email
-    );
+    USING (auth.uid() = id);
+
+-- Create policy to allow users to insert their own profiles
+CREATE POLICY "Users can insert their own profiles"
+    ON student_profiles
+    FOR INSERT
+    WITH CHECK (auth.uid() = id);

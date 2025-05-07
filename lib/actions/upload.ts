@@ -25,7 +25,8 @@ cloudinary.config({
 
 export async function uploadFileToCloudinary(
   base64Data: string,
-  folder: 'profile-photos' | 'cvs'
+  folder: 'profile-photos' | 'cvs' | 'employer_logos',
+  fileType: string // Add fileType parameter
 ) {
   try {
     // Validate the base64 string
@@ -33,12 +34,14 @@ export async function uploadFileToCloudinary(
       throw new Error('Invalid file data');
     }
 
+    const isSVG = fileType === 'image/svg+xml';
+
     // Upload to Cloudinary with optimizations
     const result = await cloudinary.uploader.upload(base64Data, {
       folder,
-      resource_type: 'auto',
+      resource_type: isSVG ? 'image' : 'auto', // Explicitly set resource_type for SVG
       quality: 'auto',
-      fetch_format: 'auto',
+      fetch_format: isSVG ? undefined : 'auto', // Remove fetch_format for SVG
       flags: 'attachment',
       ...(folder === 'profile-photos' ? {
         transformation: [
