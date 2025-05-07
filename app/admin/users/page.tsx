@@ -44,7 +44,7 @@ export default function UsersPage() {
     try {
       const result = await getAllEmployers();
       if (result.success && result.data) {
-        setEmployers(result.data.employers.map((item: any) => ({
+        setEmployers(result.data.map((item: any) => ({
           id: item.id,
           name: item.name, // Use name from the action result (EmployerWithProfile)
           industry: item.industry,
