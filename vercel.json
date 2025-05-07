@@ -1,6 +1,7 @@
 {
-  "buildCommand": "npm run build || true",
-  "ignoreCommand": "echo ignoring typescript errors",
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
   "env": {
     "NEXT_TYPESCRIPT_CHECK": "false"
   }
