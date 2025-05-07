@@ -1,16 +1,14 @@
-
 erDiagram
     profiles {
         uuid id PK
         timestamp_with_time_zone updated_at
-        text email UK
-        user_role role
+        text email UK "~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}$'"
+        user_role role "student|employer|admin"
         text full_name
         text avatar_url
-        text github_profile
-        boolean has_completed_onboarding
-        boolean has_uploaded_cv
-        jsonb cv_data
+        text github_profile "length <= 500"
+        boolean has_completed_onboarding "default: false"
+        boolean has_uploaded_cv "default: false"
     }
 
     student_profiles {
@@ -18,19 +16,19 @@ erDiagram
         uuid profile_id FK
         varchar university
         varchar course
-        integer year_level
+        integer year_level "1-6"
         text bio
-        text github_profile
+        text github_profile "length <= 500"
         varchar school_email UK
         varchar personal_email UK
         varchar phone_number
-        varchar country
+        varchar country "default: Philippines"
         varchar region_province
         varchar city
         varchar postal_code
         text street_address
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
     }
 
     employers {
@@ -47,11 +45,11 @@ erDiagram
         text position
         text contact_email
         text contact_phone
-        boolean verified
+        boolean verified "default: false"
         timestamp_with_time_zone verification_date
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
-        jsonb onboarding_progress
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
+        jsonb onboarding_progress "default: {company_info: false, company_logo: false, contact_details: false}"
     }
 
     jobs {
@@ -65,10 +63,9 @@ erDiagram
         jsonb required_skills
         jsonb preferred_skills
         timestamp_with_time_zone application_deadline
-        varchar status
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
-        boolean is_active
+        varchar status "open|closed|draft"
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
         varchar company_name
     }
 
@@ -78,32 +75,32 @@ erDiagram
         text file_url
         jsonb extracted_skills
         jsonb skills
-        jsonb analysis_results
+        jsonb analysis_results "AI-generated analysis results"
         timestamp_with_time_zone last_analyzed_at
-        integer version
-        boolean is_active
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
+        integer version "default: 1"
+        boolean is_active "default: true"
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
     }
 
     matches {
         uuid id PK
         uuid student_id FK
         uuid job_id FK
-        numeric match_score
-        varchar status
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
+        numeric match_score "0-100"
+        varchar status "pending|accepted|rejected|applied|declined"
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
     }
 
     skill_assessments {
         uuid id PK
         uuid user_id FK
         varchar skill_name
-        integer proficiency_level
+        integer proficiency_level "1-5"
         text notes
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
     }
 
     job_applications {
@@ -112,10 +109,10 @@ erDiagram
         uuid student_id FK
         uuid cv_id FK
         text cover_letter
-        text status
+        text status "pending|reviewed|shortlisted|rejected|hired"
         text employer_notes
-        timestamp_with_time_zone created_at
-        timestamp_with_time_zone updated_at
+        timestamp_with_time_zone created_at "default: CURRENT_TIMESTAMP"
+        timestamp_with_time_zone updated_at "default: CURRENT_TIMESTAMP"
     }
 
     profiles ||--o{ student_profiles : "has"
