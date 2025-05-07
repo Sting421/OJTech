@@ -3,6 +3,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { ApiResponse } from "@/lib/types/database";
+import { randomUUID } from "crypto";
 
 /**
  * Creates a profile for a newly registered user
@@ -33,6 +34,21 @@ export async function createUserProfile(
     
     if (existingProfile) {
       console.log('Profile already exists:', existingProfile);
+      
+      // Even if profile exists, check if student_profile exists
+      const { data: existingStudentProfile, error: studentCheckError } = await supabaseClient
+        .from("student_profiles")
+        .select("id")
+        .eq("profile_id", userId)
+        .maybeSingle();
+      
+      if (studentCheckError) {
+        console.error('Error checking existing student profile:', studentCheckError);
+      } else if (!existingStudentProfile) {
+        // Create student profile if it doesn't exist
+        await createStudentProfile(supabaseClient, userId, email, fullName);
+      }
+      
       return { 
         success: true, 
         data: { success: true },
@@ -71,6 +87,10 @@ export async function createUserProfile(
     }
 
     console.log('Successfully created profile:', insertedProfile);
+    
+    // Create student profile
+    await createStudentProfile(supabaseClient, userId, email, fullName);
+    
     return { success: true, data: { success: true } };
   } catch (error) {
     console.error("Error creating user profile:", error);
@@ -85,5 +105,43 @@ export async function createUserProfile(
       success: false, 
       error: error instanceof Error ? error.message : "Failed to create user profile" 
     };
+  }
+}
+
+/**
+ * Helper function to create a student profile
+ */
+async function createStudentProfile(
+  supabaseClient: any,
+  userId: string,
+  email: string,
+  fullName: string
+) {
+  console.log('Creating student profile for user:', userId);
+  
+  try {
+    const { data: studentProfile, error: studentProfileError } = await supabaseClient
+      .from("student_profiles")
+      .insert([{
+        id: randomUUID(),
+        school_email: email,
+        university: '',
+        course: '',
+        year_level: 1,
+        country: 'Philippines'
+      }])
+      .select()
+      .single();
+      
+    if (studentProfileError) {
+      console.error('Error creating student profile:', studentProfileError);
+      throw studentProfileError;
+    }
+    
+    console.log('Successfully created student profile:', studentProfile);
+    return studentProfile;
+  } catch (error) {
+    console.error('Failed to create student profile:', error);
+    throw error;
   }
 } 
