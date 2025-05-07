@@ -271,15 +271,22 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
                       <span className="font-medium">{formatDate(application.updated_at)}</span>
                     </div>
                     
-                    {application.cv?.file_url && (
+                    {/* CV has no direct file URL anymore, so we use the CV ID if available */}
+                    {application.cv?.id && (
                       <div className="mt-3">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(application.cv.file_url, '_blank')}
+                          onClick={() => {
+                            toast({
+                              title: "Direct CV Preview Not Available",
+                              description: "Please contact the student for their resume",
+                              variant: "default",
+                            });
+                          }}
                           className="w-full"
                         >
-                          View Resume/CV
+                          Request Resume/CV
                         </Button>
                       </div>
                     )}

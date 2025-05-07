@@ -428,7 +428,7 @@ export async function uploadAndParseCV(
   try {
     // First, upload the file to Cloudinary - we'll store it externally even though we don't track the URL
     console.log("Uploading CV to Cloudinary...");
-    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs');
+    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs', 'application/pdf');
     
     if (!uploadResult.success || !uploadResult.data) {
       console.error("Failed to upload CV to Cloudinary:", uploadResult.error);

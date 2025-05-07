@@ -234,7 +234,7 @@ export function CvVersionList({ activeCvId, onVersionChange }: CvVersionListProp
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <ResumePreviewButton
-                          fileUrl={cv.file_url}
+                          cvId={cv.id}
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
