@@ -84,7 +84,7 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
         
         // Direct database data check
         console.log("Job ID for applications query:", params.id);
-        console.log("Verify application exists:", applicationsResult?.data?.applications?.length > 0);
+        console.log("Verify application exists:", applicationsResult?.data?.applications && applicationsResult.data.applications.length > 0);
         
         setDebugInfo({
           jobId: params.id,

@@ -1,4 +1,7 @@
 node_modules
 .next
 .vercel
-tsconfig.json 
+tsconfig.json
+*.ts
+*.tsx
+!next-env.d.ts 

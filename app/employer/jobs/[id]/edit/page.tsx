@@ -22,7 +22,7 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
         console.log("[EDIT-JOB] Fetching job details for ID:", params.id);
         const result = await getJobById(params.id);
         console.log("[EDIT-JOB] Job details result:", result);
-        if (result.success) {
+        if (result.success && result.data) {
           console.log("[EDIT-JOB] Job details successfully loaded:", result.data);
           console.log("[EDIT-JOB] Required skills:", result.data.required_skills);
           setJob(result.data);

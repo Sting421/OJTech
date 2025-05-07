@@ -135,7 +135,7 @@ export async function uploadAndCreateCv(
 ): Promise<ApiResponse<CV>> {
   try {
     // Upload to Cloudinary
-    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs');
+    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs', 'application/pdf');
     
     if (!uploadResult.success) {
       throw new Error(uploadResult.error || 'Upload failed');

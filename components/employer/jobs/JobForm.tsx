@@ -111,7 +111,7 @@ export default function JobForm({ job, isEditing = false }: JobFormProps) {
   }, [form]); // Add form as a dependency
 
   // Get required skills from job or use empty array
-  const initialRequiredSkills = Array.isArray(job?.required_skills) ? job.required_skills : [];
+  const initialRequiredSkills = Array.isArray(job?.required_skills) ? job?.required_skills || [] : [];
   const [requiredSkills, setRequiredSkills] = useState<string[]>(initialRequiredSkills);
 
   // Log to debug

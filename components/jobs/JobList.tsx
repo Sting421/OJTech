@@ -21,7 +21,7 @@ import { formatDistanceToNow } from "date-fns";
 import { MoreHorizontal, PenSquare, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { useToast } from "../ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { deleteJob } from "@/lib/actions/job-actions";
 
 export interface Job {

@@ -139,8 +139,8 @@ export async function generateJobMatches(
     return {
       success: true,
       data: {
-        matchesCreated: result.data.created,
-        matchesUpdated: result.data.updated
+        matchesCreated: result.data?.created || 0,
+        matchesUpdated: result.data?.updated || 0
       }
     };
   } catch (error) {
@@ -192,7 +192,7 @@ export async function triggerMatchingForNewJob(
     console.log("[JOB-MATCHING] Active CVs found:", cvs?.length || 0);
     if (!cvs || cvs.length === 0) {
       console.log("[JOB-MATCHING] No active CVs found to match against the new job.");
-      return { success: true, data: { matchesCreated: 0, matchesUpdated: 0 }, message: "No active CVs to match." };
+      return { success: true, data: { matchesCreated: 0, matchesUpdated: 0 } };
     }
 
     // 3. For each CV, get student_id and calculate match score
@@ -264,11 +264,14 @@ export async function triggerMatchingForNewJob(
     
     const validMatches: Match[] = settledMatchDetails
       .filter(result => result.status === 'fulfilled' && result.value !== null)
-      .map(result => (result as PromiseFulfilledResult<Match>).value);
+      .map(result => {
+        // Use a type assertion with unknown as an intermediate step
+        return ((result as PromiseFulfilledResult<unknown>) as PromiseFulfilledResult<Match>).value;
+      });
 
     if (validMatches.length === 0) {
       console.log("[JOB-MATCHING] No valid matches could be calculated for job:", jobId);
-      return { success: true, data: { matchesCreated: 0, matchesUpdated: 0 }, message: "No valid matches calculated." };
+      return { success: true, data: { matchesCreated: 0, matchesUpdated: 0 } };
     }
 
     // 4. Batch create/update matches
@@ -283,8 +286,8 @@ export async function triggerMatchingForNewJob(
     return {
       success: true,
       data: {
-        matchesCreated: result.data.created,
-        matchesUpdated: result.data.updated
+        matchesCreated: result.data?.created || 0,
+        matchesUpdated: result.data?.updated || 0
       }
     };
 

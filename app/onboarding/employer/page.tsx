@@ -63,9 +63,9 @@ function EmployerOnboardingComponent() {
       console.log("Result of getEmployerByUserId:", result);
 
       if (result.success && result.data) {
-        const employerData = result.data;
+        const employerData = result.data as any; // Use type assertion
         const initialOnboardingData = {
-          companyName: employerData.company_name || companyName,
+          companyName: employerData.name || employerData.company_name || companyName,
           companyWebsite: employerData.company_website || "",
           companySize: employerData.company_size || "",
           industry: employerData.industry || "",
