@@ -121,53 +121,43 @@ export async function getApplicationsForJob(
     const supabaseClient = createServerComponentClient({ cookies });
     const { data: { user } } = await supabaseClient.auth.getUser();
 
-    console.log("[getApplicationsForJob] Current user:", user?.id);
     if (!user) {
       return { success: false, error: "No authenticated user found" };
     }
 
-    // Check if job exists
-    console.log("[getApplicationsForJob] Checking job ownership...");
+    // Check if job exists and get the employer_id
     const { data: job, error: jobError } = await supabaseClient
       .from("jobs")
-      .select("employer_id")
+      .select("id, employer_id")
       .eq("id", jobId)
       .single();
-
-    console.log("[getApplicationsForJob] Job data:", job, "Error:", jobError);
     
     if (jobError) {
       if (jobError.code === "PGRST116") { // Record not found
         return { success: false, error: "Job posting not found" };
       }
-      throw jobError;
+      console.error("[getApplicationsForJob] Error fetching job:", jobError);
+      return { success: false, error: "Error fetching job details" };
     }
 
-    // Check if user is the owner or an admin
-    console.log("[getApplicationsForJob] Checking user role...");
+    // Get user's profile to check role
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("role")
+      .select("id, role")
       .eq("id", user.id)
       .single();
 
-    console.log("[getApplicationsForJob] User profile:", profile, "Error:", profileError);
+    if (profileError) {
+      console.error("[getApplicationsForJob] Error fetching user profile:", profileError);
+      return { success: false, error: "Error fetching user profile" };
+    }
     
-    if (profileError) throw profileError;
-    
-    // Check authorization - direct comparison of IDs
-    const isOwner = job.employer_id === user.id;
+    // Check authorization
     const isAdmin = profile.role === "admin";
+    const isOwner = job.employer_id === user.id;
     
-    console.log("[getApplicationsForJob] Authorization check: user.id=", user.id, 
-      "job.employer_id=", job.employer_id, 
-      "isOwner=", isOwner, 
-      "isAdmin=", isAdmin);
-    
+    // If user is neither admin nor direct owner, check if they're associated with an employer
     if (!isAdmin && !isOwner) {
-      // If user is neither admin nor job owner, check if they're an employer first
-      console.log("[getApplicationsForJob] User is not admin or direct owner, checking employer status");
-      try {
         const { data: employer } = await supabaseClient
           .from("employers")
           .select("id")
@@ -175,16 +165,8 @@ export async function getApplicationsForJob(
           .single();
         
         const employerIsOwner = employer?.id === job.employer_id;
-        console.log("[getApplicationsForJob] Employer check: employer?.id=", employer?.id, 
-          "job.employer_id=", job.employer_id,
-          "employerIsOwner=", employerIsOwner);
         
         if (!employerIsOwner) {
-          console.log("[getApplicationsForJob] Authorization failed - not owner or admin");
-          return { success: false, error: "You don't have permission to view these applications" };
-        }
-      } catch (e) {
-        console.log("[getApplicationsForJob] Error checking employer:", e);
         return { success: false, error: "You don't have permission to view these applications" };
       }
     }
@@ -193,23 +175,10 @@ export async function getApplicationsForJob(
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Build query
-    console.log("[getApplicationsForJob] Building applications query...");
+    // First, get the basic job applications
     let query = supabaseClient
       .from("job_applications")
-      .select(`
-        *,
-        student:student_id (
-          id,
-          full_name,
-          email,
-          avatar_url
-        ),
-        cv:cv_id (
-          file_url,
-          skills
-        )
-      `, { count: "exact" })
+      .select('*', { count: "exact" })
       .eq("job_id", jobId);
 
     // Apply status filter if provided
@@ -222,16 +191,112 @@ export async function getApplicationsForJob(
       .range(from, to)
       .order("created_at", { ascending: false });
 
-    console.log("[getApplicationsForJob] Executing applications query for job_id:", jobId);
+    // Execute the query
     const { data: applications, error, count } = await query;
     
-    console.log("[getApplicationsForJob] Applications result:", 
-      "Count:", count, 
-      "Error:", error, 
-      "First application:", applications?.[0] ? { id: applications[0].id } : "none"
-    );
+    if (error) {
+      console.error("[getApplicationsForJob] Error fetching applications:", error);
+      return { success: false, error: "Error fetching applications" };
+    }
 
-    if (error) throw error;
+    // If we have applications, fetch related data separately
+    if (applications && applications.length > 0) {
+      // Get all student ids
+      const studentIds = applications.map(app => app.student_id);
+      
+      // Fetch student profiles
+      const { data: students } = await supabaseClient
+        .from("profiles")
+        .select("id, full_name, email, avatar_url")
+        .in("id", studentIds);
+      
+      // Create a map of student_id to student data
+      const studentMap = (students || []).reduce((acc, student) => {
+        acc[student.id] = student;
+        return acc;
+      }, {} as Record<string, any>);
+      
+      // Get all CV ids
+      const cvIds = applications.map(app => app.cv_id).filter(Boolean);
+      
+      // Fetch CV data if there are any
+      let cvMap: Record<string, any> = {};
+      if (cvIds.length > 0) {
+        const { data: cvs } = await supabaseClient
+          .from("cvs")
+          .select("id, skills, extracted_skills")
+          .in("id", cvIds);
+        
+        // Create a map of cv_id to cv data
+        cvMap = (cvs || []).reduce((acc, cv) => {
+          acc[cv.id] = cv;
+          return acc;
+        }, {} as Record<string, any>);
+      }
+      
+      // Get student_profiles IDs for looking up match scores
+      const emails = students?.map(s => s.email).filter(Boolean) || [];
+      let studentProfileMap: Record<string, string> = {};
+      let studentProfileDataMap: Record<string, any> = {}; // Map to store full student_profile data
+      
+      if (emails.length > 0) {
+        const { data: studentProfiles } = await supabaseClient
+          .from("student_profiles")
+          .select("id, profile_id, school_email, university, course, year_level, phone_number, bio")
+          .in("school_email", emails);
+        
+        // Create a map of school_email to student_profile id
+        studentProfileMap = (studentProfiles || []).reduce((acc, profile) => {
+          acc[profile.school_email] = profile.id;
+          return acc;
+        }, {} as Record<string, string>);
+        
+        // Create a map of profile_id to student_profile data
+        studentProfileDataMap = (studentProfiles || []).reduce((acc, profile) => {
+          acc[profile.profile_id] = profile;
+          return acc;
+        }, {} as Record<string, any>);
+      }
+      
+      // Get match scores from the matches table
+      const studentProfileIds = Object.values(studentProfileMap);
+      let matchScoreMap: Record<string, number> = {};
+      
+      if (studentProfileIds.length > 0) {
+        const { data: matches } = await supabaseClient
+          .from("matches")
+          .select("student_id, job_id, match_score")
+          .eq("job_id", jobId)
+          .in("student_id", studentProfileIds);
+        
+        // Create a map for student_profile_id+job_id to match_score
+        matchScoreMap = (matches || []).reduce((acc, match) => {
+          const key = `${match.student_id}_${match.job_id}`;
+          acc[key] = match.match_score;
+          return acc;
+        }, {} as Record<string, number>);
+      }
+      
+      // Add student, student_profile, and CV data to each application
+      applications.forEach(app => {
+        app.student = studentMap[app.student_id] || null;
+        app.cv = cvMap[app.cv_id] || null;
+        
+        // Add student_profile data if available
+        if (app.student_id) {
+          app.student_profile = studentProfileDataMap[app.student_id] || null;
+        }
+        
+        // Add match score if available
+        if (app.student?.email) {
+          const studentProfileId = studentProfileMap[app.student.email];
+          if (studentProfileId) {
+            const matchKey = `${studentProfileId}_${app.job_id}`;
+            app.match_score = matchScoreMap[matchKey] || null;
+          }
+        }
+      });
+    }
 
     return { 
       success: true, 
@@ -353,7 +418,7 @@ export async function getStudentApplications(
     // Check if user is a student
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("role")
+      .select("role, email")
       .eq("id", user.id)
       .single();
 
@@ -362,6 +427,15 @@ export async function getStudentApplications(
     if (profile.role !== "student") {
       return { success: false, error: "User is not a student" };
     }
+
+    // Get the student_profiles.id for this user that's used in the matches table
+    const { data: studentProfile } = await supabaseClient
+      .from("student_profiles")
+      .select("id")
+      .eq("school_email", profile.email)
+      .maybeSingle();
+
+    const studentId = studentProfile?.id;
 
     // Calculate pagination
     const from = (page - 1) * limit;
@@ -399,6 +473,32 @@ export async function getStudentApplications(
     const { data: applications, error, count } = await query;
 
     if (error) throw error;
+
+    // If we have a student profile ID and applications, fetch match scores
+    if (studentId && applications && applications.length > 0) {
+      // Get all job IDs
+      const jobIds = applications.map(app => app.job_id);
+      
+      // Fetch match scores for these job IDs
+      const { data: matches } = await supabaseClient
+        .from("matches")
+        .select("job_id, match_score")
+        .eq("student_id", studentId)
+        .in("job_id", jobIds);
+      
+      // Create a map of job_id to match_score
+      const matchScores = (matches || []).reduce((acc, match) => {
+        acc[match.job_id] = match.match_score;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      // Add match_score to each application
+      applications.forEach(app => {
+        if (matchScores[app.job_id]) {
+          app.match_score = matchScores[app.job_id];
+        }
+      });
+    }
 
     return { 
       success: true, 

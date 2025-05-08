@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getJobById } from "@/lib/actions/job-actions";
+import { getJobById, deleteJob } from "@/lib/actions/job-actions";
 import { 
   ArrowLeft, 
   CalendarIcon, 
@@ -19,15 +19,28 @@ import {
   Loader2,
   PenSquare,
   UsersIcon,
-  ClockIcon
+  ClockIcon,
+  Trash2
 } from "lucide-react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [job, setJob] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -60,6 +73,31 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
     fetchJobDetails();
   }, [params.id, router, toast]);
+
+  const handleDeleteJob = async () => {
+    setIsDeleting(true);
+    try {
+      const result = await deleteJob(params.id);
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Job deleted successfully",
+        });
+        router.push("/employer/jobs");
+      } else {
+        throw new Error(result.error || "Failed to delete job");
+      }
+    } catch (error) {
+      console.error("Error deleting job:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete job",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const renderStatusBadge = (status: string) => {
     switch (status) {
@@ -114,7 +152,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="py-6 space-y-6">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => router.push("/employer/jobs")}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -124,8 +162,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{job.title}</h1>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
+          <h1 className="text-3xl font-bold">{job.title} <span className="text-md mb-3 text-muted-foreground">{renderStatusBadge(job.status)}</span></h1>
+          <div className="flex flex-wrap items-center gap-y-2 gap-x-4 mt-2">
             <div className="flex items-center text-muted-foreground">
               <BriefcaseIcon className="h-4 w-4 mr-1" />
               <span>{job.job_type}</span>
@@ -134,25 +172,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <MapPinIcon className="h-4 w-4 mr-1" />
               <span>{job.location}</span>
             </div>
-            <div className="flex items-center text-muted-foreground">
+            <div className="flex items-center text-muted-foreground w-full">
               <CalendarIcon className="h-4 w-4 mr-1" />
               <span>Posted {formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}</span>
             </div>
-            <div className="flex items-center text-muted-foreground">
-              <UsersIcon className="h-4 w-4 mr-1" />
-              <span>{job.applicationCount || 0} applications</span>
-            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {renderStatusBadge(job.status)}
-          <Button asChild>
-            <Link href={`/employer/jobs/${job.id}/edit`}>
-              <PenSquare className="h-4 w-4 mr-2" />
-              Edit Job
-            </Link>
-          </Button>
-        </div>
+
+        
       </div>
 
       <Separator />
@@ -164,7 +191,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <CardTitle>Job Description</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="prose max-w-none">
+              <div className="prose max-w-none text-muted-foreground">
                 {job.description.split('\n').map((paragraph: string, i: number) => (
                   <p key={i} className="mb-4">{paragraph}</p>
                 ))}
@@ -217,38 +244,38 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <CardContent className="space-y-4">
               <div>
                 <div className="text-sm font-medium">Company</div>
-                <div>{job.company_name}</div>
+                <div className="text-muted-foreground">{job.company_name}</div>
               </div>
               <div>
                 <div className="text-sm font-medium">Location</div>
-                <div>{job.location}</div>
+                <div className="text-muted-foreground">{job.location}</div>
               </div>
               <div>
                 <div className="text-sm font-medium">Job Type</div>
-                <div>{job.job_type}</div>
+                <div className="text-muted-foreground">{job.job_type}</div>
               </div>
               {job.salary_range && (
                 <div>
                   <div className="text-sm font-medium">Salary</div>
-                  <div>{job.salary_range}</div>
+                  <div className="text-muted-foreground">{job.salary_range}</div>
                 </div>
               )}
               {job.application_deadline && (
                 <div>
                   <div className="text-sm font-medium">Application Deadline</div>
-                  <div className="flex items-center">
-                    <ClockIcon className="h-4 w-4 mr-1 text-muted-foreground" />
+                  <div className="flex items-center text-muted-foreground">
+                    <ClockIcon className="h-4 w-4 mr-1" />
                     {new Date(job.application_deadline).toLocaleDateString()}
                   </div>
                 </div>
               )}
               <div>
                 <div className="text-sm font-medium">Posted On</div>
-                <div>{new Date(job.created_at).toLocaleDateString()}</div>
+                <div className="text-muted-foreground">{new Date(job.created_at).toLocaleDateString()}</div>
               </div>
               <div>
                 <div className="text-sm font-medium">Last Updated</div>
-                <div>{new Date(job.updated_at).toLocaleDateString()}</div>
+                <div className="text-muted-foreground">{new Date(job.updated_at).toLocaleDateString()}</div>
               </div>
             </CardContent>
           </Card>
@@ -270,6 +297,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   Edit Job
                 </Link>
               </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="w-full">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Job
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure you want to delete this job?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete the job and remove all associated applications.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleDeleteJob} 
+                      disabled={isDeleting}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeleting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        "Delete"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </CardContent>
           </Card>
         </div>

@@ -63,6 +63,7 @@ export default function JobForm({ job, isEditing = false }: JobFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [companyAddress, setCompanyAddress] = useState<string>("");
 
   // Initialize form with default values
   const form = useForm<FormValues>({
@@ -89,7 +90,17 @@ export default function JobForm({ job, isEditing = false }: JobFormProps) {
         const result = await getEmployerByUserId();
         if (result.success && result.data) {
           form.setValue('company_name', result.data.name);
-          form.setValue('location', result.data.company_address || "");
+          
+          // Save company address and set location value
+          const address = result.data.company_address || "";
+          setCompanyAddress(address);
+          
+          // If job already has a location, use it, otherwise use company address
+          if (job?.location) {
+            form.setValue('location', job.location);
+          } else {
+            form.setValue('location', address);
+          }
         } else {
           console.error('Failed to fetch employer data:', result.error);
           toast({
@@ -108,11 +119,11 @@ export default function JobForm({ job, isEditing = false }: JobFormProps) {
     };
 
     fetchEmployerData();
-  }, [form]); // Add form as a dependency
+  }, [form, job]);
 
   // Get required skills from job or use empty array
-  const initialRequiredSkills = Array.isArray(job?.required_skills) ? job.required_skills : [];
-  const [requiredSkills, setRequiredSkills] = useState<string[]>(initialRequiredSkills);
+  const initialRequiredSkills = Array.isArray(job?.required_skills) ? job?.required_skills : [];
+  const [requiredSkills, setRequiredSkills] = useState<string[]>(initialRequiredSkills as string[]);
 
   // Log to debug
   useEffect(() => {
@@ -330,17 +341,19 @@ export default function JobForm({ job, isEditing = false }: JobFormProps) {
                     <input
                       type="radio"
                       id="company"
-                      value={form.getValues('location')} // Use current form value for company location
+                      value="company_address"
                       checked={field.value !== "Remote"}
                       onChange={() => {
-                        const companyAddress = form.getValues('location');
-                        if (companyAddress && companyAddress !== "Remote") {
+                        // Use the stored company address when switching back from Remote
+                        if (companyAddress) {
                           field.onChange(companyAddress);
                         }
                       }}
                       className="h-4 w-4 text-primary focus:ring-primary"
                     />
-                    <label htmlFor="company" >{form.getValues('location') !== "Remote" ? form.getValues('location') : 'Company Address'}</label>
+                    <label htmlFor="company">
+                      {field.value !== "Remote" ? field.value : companyAddress || 'Company Address'}
+                    </label>
                   </div>
                 </div>
                 <FormMessage />

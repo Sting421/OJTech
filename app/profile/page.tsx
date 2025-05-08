@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { readFileAsBase64, validateFileSize, validatePDFFile } from "@/lib/utils/upload-helper";
 import { useAuth } from "@/providers/auth-provider";
-import { getCurrentUserMostRecentCv } from "@/lib/actions/cv";
+import { getCurrentUserMostRecentCv, getStudentMostRecentCv } from "@/lib/actions/cv";
 import { uploadAndParseCV } from "@/lib/actions/resume-parser";
 import { Loader2 } from "lucide-react";
 import { ResumeTips } from "@/components/resume/ResumeTips";
@@ -17,6 +17,7 @@ import { CvVersionList } from "@/components/resume/CvVersionList";
 import { SkillAssessment } from "@/components/resume/SkillAssessment";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResumePreviewButton } from "@/components/resume/ResumePreviewButton";
+import { useSearchParams, useRouter } from "next/navigation";
 
 // Add this utility function to filter out category labels from skills
 function filterSkillCategoryLabels(skills: string[]): string[] {
@@ -65,6 +66,12 @@ function filterSkillCategoryLabels(skills: string[]): string[] {
 export default function ResumePage() {
   const { toast } = useToast();
   const { user, profile: authProfile, refreshUser } = useAuth();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  // Get student_id from URL query parameters (if viewing another user's profile)
+  const studentId = searchParams.get('student_id');
+  
   const [loading, setLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -73,31 +80,87 @@ export default function ResumePage() {
   const [cvId, setCvId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("info");
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [isViewingOtherProfile, setIsViewingOtherProfile] = useState(false);
+  const [studentName, setStudentName] = useState<string | null>(null);
 
   // Track if we're already loading data
   const [isInitialized, setIsInitialized] = useState(false);
   
-  // Initial data load
+  // Authentication check
   useEffect(() => {
-    if (!user || isInitialized) return;
+    // Security check - ensure the user is logged in
+    if (!user) {
+      console.log("Unauthorized access: User not logged in. Redirecting to login page.");
+      router.push("/auth/login");
+      return;
+    }
+    
+    // Security check - ensure the user has permission to view other profiles
+    // Only employers and admins can view other student profiles
+    if (studentId && studentId !== user.id && authProfile?.role === "student") {
+      console.log("Unauthorized access: Students cannot view other student profiles");
+      toast({
+        title: "Access denied",
+        description: "You don't have permission to view this profile",
+        variant: "destructive",
+      });
+      router.push("/");
+      return;
+    }
+  }, [user, studentId, authProfile, router, toast]);
+  
+  // Initial data load - Fixed to prevent infinite loop
+  useEffect(() => {
+    // Determine if viewing own profile or another student's profile
+    const viewingOtherProfile = !!studentId && studentId !== user?.id;
+    setIsViewingOtherProfile(viewingOtherProfile);
+    
+    // Set active tab to info when viewing other profiles
+    if (viewingOtherProfile) {
+      setActiveTab("info");
+    }
+    
+    // Skip if no user and no studentId, or if already initialized
+    if ((!user && !studentId) || isInitialized) return;
     
     async function loadResumeData() {
+      if (isInitialized) return; // Extra guard against re-running
+      
       try {
         setLoading(true);
-        setUserId(user?.id || null);
+        
+        if (viewingOtherProfile && studentId) {
+          // Fetch the other student's CV
+          const result = await getStudentMostRecentCv(studentId);
+          
+          if (result.success && result.data) {
+            console.log("Retrieved student CV data:", result.data);
+            setCvId(result.data.id);
+            setCvData(result.data.skills);
+            setHasResume(true);
+            
+            // Try to set the student name if available in the CV data
+            if (result.data.skills?.personal_info?.name) {
+              setStudentName(result.data.skills.personal_info.name);
+            }
+          } else {
+            // If we couldn't get the CV, still mark as initialized
+            console.log("No CV found for student:", studentId);
+          }
+        } else if (user) {
+          // Own profile - use existing logic
+          setUserId(user.id);
 
-        // Load CV data from profile if available
-        if (authProfile?.cv_data) {
-          console.log("Using CV data from profile:", authProfile.cv_data);
-          setCvData(authProfile.cv_data);
-          setHasResume(true);
+          // Load CV data from profile if available
+          if (authProfile?.cv_data) {
+            console.log("Using CV data from profile:", authProfile.cv_data);
+            setCvData(authProfile.cv_data);
+            setHasResume(true);
+          }
+          
+          // Always load CV record to get the ID
+          await loadCvData();
         }
-        
-        // Always load CV record to get the ID
-        await loadCvData();
-        
-        // Mark that we've successfully initialized data
-        setIsInitialized(true);
       } catch (error) {
         console.error("Error loading resume data:", error);
         toast({
@@ -107,11 +170,13 @@ export default function ResumePage() {
         });
       } finally {
         setLoading(false);
+        // Mark that we've successfully initialized data - do this once only
+        setIsInitialized(true);
       }
     }
 
     loadResumeData();
-  }, [user, authProfile, isInitialized]);
+  }, [user, authProfile, studentId]); // Remove isInitialized from dependencies
 
   // Function to load CV data
   async function loadCvData() {
@@ -213,66 +278,92 @@ export default function ResumePage() {
           </div>
         ) : (
           <div className="space-y-8">
-            {/* Resume Upload Section */}
-            <Card className="p-6">
-              <div className="flex flex-col items-center space-y-4">
-                <h2 className="text-xl font-semibold">Upload Your Resume</h2>
-                <p className="text-muted-foreground text-center max-w-md">
-                  Upload your resume to automatically extract your skills, experience, and education.
-                  Employers will be able to view this information when reviewing your profile.
-                </p>
-                
-                <div className="flex items-center gap-4">
-                  <Input
-                    id="resume"
-                    type="file"
-                    accept="application/pdf"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                  <Label
-                    htmlFor="resume"
-                    className="cursor-pointer inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-                  >
-                    {uploadLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : hasResume ? "Upload New Version" : "Upload Resume"}
-                  </Label>
+            {/* Resume Upload Section - Only show for own profile */}
+            {!isViewingOtherProfile && (
+              <Card className="p-6">
+                <div className="flex flex-col items-center space-y-4">
+                  <h2 className="text-xl font-semibold">Upload Your Resume</h2>
+                  <p className="text-muted-foreground text-center max-w-md">
+                    Upload your resume to automatically extract your skills, experience, and education.
+                    Employers will be able to view this information when reviewing your profile.
+                  </p>
                   
-                  {hasResume && resumeUrl && (
-                    <ResumePreviewButton 
-                      fileUrl={resumeUrl}
-                      label="Preview Resume"
+                  <div className="flex items-center gap-4">
+                    <Input
+                      id="resume"
+                      type="file"
+                      accept="application/pdf"
+                      onChange={handleFileUpload}
+                      className="hidden"
                     />
-                  )}
-                  
-                  {hasResume && cvId && (
-                    <JobMatchingButton cvId={cvId} />
-                  )}
+                    <Label
+                      htmlFor="resume"
+                      className="cursor-pointer inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                    >
+                      {uploadLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : hasResume ? "Upload New Version" : "Upload Resume"}
+                    </Label>
+                    
+                    {hasResume && resumeUrl && (
+                      <ResumePreviewButton 
+                        fileUrl={resumeUrl}
+                        label="Preview Resume"
+                      />
+                    )}
+                    
+                    {hasResume && cvId && !isViewingOtherProfile && (
+                      <JobMatchingButton cvId={cvId} />
+                    )}
+                  </div>
                 </div>
+              </Card>
+            )}
+            
+            {/* Title for viewing other profiles */}
+            {isViewingOtherProfile && studentName && (
+              <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-bold">{studentName}'s Resume</h1>
+                <Button variant="outline" onClick={() => router.back()}>
+                  Back to Applications
+                </Button>
               </div>
-            </Card>
+            )}
             
-            {/* Resume Optimization Section */}
-            {hasResume && <ResumeTips autoLoad={true} />}
+            {/* Resume Optimization Section - Only for own profile */}
+            {hasResume && !isViewingOtherProfile && <ResumeTips autoLoad={true} />}
             
-            {/* Resume Tabs */}
+            {/* Resume Tabs - Simplified when viewing other profiles */}
             {hasResume && (
-              <Tabs defaultValue="info" value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full max-w-md mx-auto grid-cols-3">
-                  <TabsTrigger value="info">Resume Info</TabsTrigger>
-                  <TabsTrigger value="versions">Version History</TabsTrigger>
-                  <TabsTrigger value="skills">Skill Assessment</TabsTrigger>
-                </TabsList>
+              <Tabs 
+                defaultValue="info" 
+                value={activeTab} 
+                onValueChange={setActiveTab}
+              >
+                {!isViewingOtherProfile ? (
+                  // Full tabs for own profile
+                  <TabsList className="grid w-full max-w-md mx-auto grid-cols-3">
+                    <TabsTrigger value="info">Resume Info</TabsTrigger>
+                    <TabsTrigger value="versions">Version History</TabsTrigger>
+                    <TabsTrigger value="skills">Skill Assessment</TabsTrigger>
+                  </TabsList>
+                ) : (
+                  // Just info tab when viewing other profiles
+                  <TabsList className="hidden">
+                    <TabsTrigger value="info">Resume Info</TabsTrigger>
+                  </TabsList>
+                )}
                 
                 <TabsContent value="info" className="mt-6">
                   {/* Resume Information Section */}
                   {cvData && (
                     <Card className="p-6">
-                      <h2 className="text-2xl font-bold mb-6">Resume Information</h2>
+                      {!isViewingOtherProfile && (
+                        <h2 className="text-2xl font-bold mb-6">Resume Information</h2>
+                      )}
                       
                       {/* Personal Info Section */}
                       {cvData.personal_info && (
@@ -484,18 +575,22 @@ export default function ResumePage() {
                   )}
                 </TabsContent>
 
-                <TabsContent value="versions" className="mt-6">
-                  {/* Resume Version Control Section */}
-                  <CvVersionList 
-                    activeCvId={cvId || undefined}
-                    onVersionChange={handleCvVersionChange}
-                  />
-                </TabsContent>
+                {!isViewingOtherProfile && (
+                  <>
+                    <TabsContent value="versions" className="mt-6">
+                      {/* Resume Version Control Section */}
+                      <CvVersionList 
+                        activeCvId={cvId || undefined}
+                        onVersionChange={handleCvVersionChange}
+                      />
+                    </TabsContent>
 
-                <TabsContent value="skills" className="mt-6">
-                  {/* Skill Assessment Section */}
-                  <SkillAssessment />
-                </TabsContent>
+                    <TabsContent value="skills" className="mt-6">
+                      {/* Skill Assessment Section */}
+                      <SkillAssessment />
+                    </TabsContent>
+                  </>
+                )}
               </Tabs>
             )}
             
@@ -504,9 +599,20 @@ export default function ResumePage() {
                 <div className="flex flex-col items-center space-y-4 py-8">
                   <h3 className="text-xl font-semibold">No Resume Found</h3>
                   <p className="text-muted-foreground text-center max-w-md">
-                    Please upload your resume to get started. We'll automatically extract your skills,
-                    experience, and education to make your profile more attractive to employers.
+                    {isViewingOtherProfile ? 
+                      "This student has not uploaded a resume yet." :
+                      "Please upload your resume to get started. We'll automatically extract your skills, experience, and education to make your profile more attractive to employers."
+                    }
                   </p>
+                  {isViewingOtherProfile && (
+                    <Button 
+                      variant="outline" 
+                      onClick={() => router.back()}
+                      className="mt-4"
+                    >
+                      Back to Applications
+                    </Button>
+                  )}
                 </div>
               </Card>
             )}

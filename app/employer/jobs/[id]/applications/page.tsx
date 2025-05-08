@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2, User, Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building } from "lucide-react";
+import { ArrowLeft, Download, Loader2, User, Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building, GraduationCap, Phone, AtSign, BookOpen, X, FileText, PenSquare, Award, Mail, MapPinned, UserCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -21,6 +21,15 @@ import { getApplicationsForJob } from "@/lib/actions/application";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils/date-utils";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 
 // Get the next step message based on application status
 const getNextStepMessage = (status: string) => {
@@ -43,60 +52,101 @@ const getNextStepMessage = (status: string) => {
 // Map job application status to display colors
 const getStatusColor = (status: string) => {
   const statusColors = {
-    'pending': 'bg-yellow-500',
-    'reviewed': 'bg-blue-500',
-    'shortlisted': 'bg-green-500',
-    'rejected': 'bg-red-500',
-    'hired': 'bg-purple-500'
+    'pending': 'bg-gray-500',
+    'reviewed': 'bg-gray-600',
+    'shortlisted': 'bg-gray-800',
+    'rejected': 'bg-gray-700',
+    'hired': 'bg-gray-900'
   } as const
 
-  return statusColors[status as keyof typeof statusColors] || 'bg-gray-500'
+  return statusColors[status as keyof typeof statusColors] || 'bg-gray-400'
 }
+
+// Get color for match score - FIXED to properly show high scores as good (green)
+const getMatchScoreColor = (score: number) => {
+  if (score >= 80) return { bg: "bg-green-100", text: "text-green-600", progress: "bg-green-600" };
+  if (score >= 60) return { bg: "bg-blue-100", text: "text-blue-600", progress: "bg-blue-600" };
+  if (score >= 40) return { bg: "bg-yellow-100", text: "text-yellow-600", progress: "bg-yellow-600" };
+  return { bg: "bg-red-100", text: "text-red-600", progress: "bg-red-600" };
+}
+
+// Get match label based on score
+const getMatchLabel = (score: number) => {
+  if (score >= 80) return "Strong match";
+  if (score >= 60) return "Good match";
+  if (score >= 40) return "Potential match";
+  return "Low match";
+}
+
+// Function to format the CV skills for display
+const formatCvSkills = (cv: any): string[] => {
+  if (!cv?.skills) return [];
+  
+  try {
+    const skills = typeof cv.skills === 'string' 
+      ? JSON.parse(cv.skills)
+      : cv.skills;
+      
+    if (Array.isArray(skills)) {
+      return skills.map(skill => typeof skill === 'string' ? skill : (skill.name || '')).filter(Boolean);
+    } else if (typeof skills === 'object') {
+      // Handle object with potential nested arrays
+      const extractedSkills = [];
+      for (const key in skills) {
+        if (Array.isArray(skills[key])) {
+          extractedSkills.push(...skills[key].map((s: any) => 
+            typeof s === 'string' ? s : (s.name || '')
+          ).filter(Boolean));
+        } else if (typeof skills[key] === 'string') {
+          extractedSkills.push(skills[key]);
+        }
+      }
+      return extractedSkills;
+    }
+    return [];
+  } catch (e) {
+    console.error("Error parsing CV skills:", e);
+    return [];
+  }
+};
 
 export default function JobApplicationsPage({ params }: { params: { id: string } }) {
   const [job, setJob] = useState<any>(null);
   const [applications, setApplications] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [isError, setIsError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
     const fetchJobDetails = async () => {
       setIsLoading(true);
+      setIsError(false);
+      
       try {
-        console.log("Fetching job details for ID:", params.id);
-        
         // Fetch job details first
         const jobResult = await getJobById(params.id);
-        console.log("Job result:", jobResult);
         
         if (!jobResult.success) {
-          throw new Error(jobResult.error || "Failed to load job details");
+          setIsError(true);
+          setErrorMessage(jobResult.error || "Failed to load job details");
+          toast({
+            title: "Error",
+            description: jobResult.error || "Failed to load job details",
+            variant: "destructive",
+          });
+          return;
         }
         
         setJob(jobResult.data);
         
         // Now fetch applications
-        console.log("Fetching applications for job ID:", params.id);
         const applicationsResult = await getApplicationsForJob(params.id);
-        console.log("Applications result:", applicationsResult);
-        
-        // Direct database data check
-        console.log("Job ID for applications query:", params.id);
-        console.log("Verify application exists:", applicationsResult?.data?.applications?.length > 0);
-        
-        setDebugInfo({
-          jobId: params.id,
-          employerId: jobResult.data?.employer_id,
-          applicationsResult
-        });
         
         if (applicationsResult.success && applicationsResult.data) {
-          console.log("Application data:", applicationsResult.data);
           setApplications(applicationsResult.data.applications || []);
         } else {
-          console.error("Error fetching applications:", applicationsResult.error);
           toast({
             title: "Warning",
             description: "Job details loaded, but couldn't load applications: " + 
@@ -107,16 +157,13 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
         }
       } catch (error) {
         console.error("Error in fetchJobDetails:", error);
-        setDebugInfo({
-          error: error instanceof Error ? error.message : String(error),
-          jobId: params.id
-        });
+        setIsError(true);
+        setErrorMessage(error instanceof Error ? error.message : "An unexpected error occurred");
         toast({
           title: "Error",
           description: error instanceof Error ? error.message : "An unexpected error occurred",
           variant: "destructive",
         });
-        router.push("/employer/jobs");
       } finally {
         setIsLoading(false);
       }
@@ -124,21 +171,6 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
 
     fetchJobDetails();
   }, [params.id, router, toast]);
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline">Pending</Badge>;
-      case "reviewed":
-        return <Badge variant="secondary">Reviewed</Badge>;
-      case "shortlisted":
-        return <Badge variant="default">Shortlisted</Badge>;
-      case "rejected":
-        return <Badge variant="destructive">Rejected</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
 
   const getInitials = (name: string) => {
     if (!name) return "?";
@@ -153,6 +185,20 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
     return (
       <div className="flex items-center justify-center h-[50vh]">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-xl font-semibold">Error Loading Job</h2>
+        <p className="text-muted-foreground mt-2">
+          {errorMessage || "There was an error loading this job's applications."}
+        </p>
+        <Button className="mt-4" onClick={() => router.push("/employer/jobs")}>
+          Back to Jobs
+        </Button>
       </div>
     );
   }
@@ -172,7 +218,7 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="py-6 space-y-6">
       <div className="flex items-center gap-2">
         <Button 
           variant="ghost" 
@@ -186,30 +232,17 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{job.title} - Applications</h1>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            {job.title}
+            <span className="text-lg font-normal bg-muted/30 px-2.5 py-0.5 rounded-full">
+              {job.status}
+            </span>
+          </h1>
           <p className="text-muted-foreground">
             {job.company_name} • {job.location}
           </p>
         </div>
-        <Button variant="outline" size="sm" disabled={applications.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Export Applications
-        </Button>
       </div>
-
-      {/* Debug information section */}
-      {debugInfo && (
-        <Card className="bg-yellow-50 border-yellow-200">
-          <CardHeader>
-            <CardTitle className="text-yellow-800">Debug Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs overflow-auto max-h-40 p-2 bg-yellow-100 rounded">
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
 
       {applications.length === 0 ? (
         <Card>
@@ -225,16 +258,22 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {applications.map((application) => (
-            <div
-              key={application.id}
-              className="flex flex-col rounded-lg overflow-hidden"
-            >
-              <div className="p-4 sm:p-6 flex flex-col bg-gradient-to-b from-muted/50 to-muted/10">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+          {applications.map((application) => {
+            const scoreColors = application.match_score !== undefined ? 
+              getMatchScoreColor(application.match_score) : 
+              { bg: "bg-gray-100", text: "text-gray-500", progress: "bg-gray-400" };
+              
+            // Format CV skills for each application
+            const cvSkills = application.cv ? formatCvSkills(application.cv) : [];
+              
+            return (
+              <Card key={application.id} className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="p-4 sm:p-6 bg-gradient-to-b from-muted/30 to-transparent">
+                    {/* Top Row - Applicant Basic Info & Status */}
+                    <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex items-center gap-3">
-                      <Avatar>
+                        <Avatar className="h-12 w-12 border">
                         <AvatarFallback>
                           {getInitials(application.student?.full_name || application.student?.email || "")}
                         </AvatarFallback>
@@ -249,15 +288,140 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
                         </span>
                       </div>
                     </div>
-                  </div>
+                      <div className="flex flex-col items-end gap-2">
                   <Badge className={`${getStatusColor(application.status)} text-white px-3 py-1 text-xs uppercase`}>
                     {application.status}
                   </Badge>
+                        {application.match_score !== undefined && (
+                          <div className={`flex items-center px-3 py-1 rounded-md ${scoreColors.bg}`}>
+                            <span className={`text-sm font-medium ${scoreColors.text}`}>
+                              {getMatchLabel(application.match_score)} • {application.match_score}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Content Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                      {/* Left Column (5/12) - Candidate Info */}
+                      <div className="md:col-span-5 space-y-4">
+                        {/* University Info */}
+                        {application.student_profile && (
+                          <div className="grid grid-cols-1 gap-2 bg-muted/20 p-3 rounded-lg">
+                            <h4 className="text-sm font-medium mb-1">Education</h4>
+                            {application.student_profile.university && (
+                              <div className="flex items-start gap-2">
+                                <GraduationCap className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                                <div className="text-sm">
+                                  <span className="font-medium">{application.student_profile.university}</span>
+                                  {application.student_profile.course && (
+                                    <p className="text-muted-foreground">{application.student_profile.course}</p>
+                                  )}
+                                  {application.student_profile.year_level && (
+                                    <p className="text-xs text-muted-foreground">Year {application.student_profile.year_level}</p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {(!application.student_profile.university && !application.student_profile.course) && (
+                              <p className="text-sm text-muted-foreground">No education details provided</p>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Contact Info */}
+                        <div className="grid grid-cols-1 gap-2 bg-muted/20 p-3 rounded-lg">
+                          <h4 className="text-sm font-medium mb-1">Contact</h4>
+                          <div className="flex items-center gap-2">
+                            <AtSign className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{application.student?.email || "No email provided"}</span>
+                          </div>
+                          {application.student_profile?.phone_number && (
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm">{application.student_profile.phone_number}</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Match Score */}
+                        {application.match_score !== undefined && (
+                          <div className="bg-muted/20 p-3 rounded-lg">
+                            <h4 className="text-sm font-medium mb-2">Match Score</h4>
+                            <div className="flex justify-between items-center mb-2">
+                              <Progress 
+                                value={application.match_score} 
+                                className={cn(
+                                  "h-2 flex-1 mr-2",
+                                  scoreColors.progress
+                                )}
+                              />
+                              <span className={cn(
+                                "font-bold",
+                                scoreColors.text
+                              )}>
+                                {application.match_score}%
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {getMatchLabel(application.match_score)}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* CV Skills - Display when CV is available */}
+                        {application.cv?.id && cvSkills.length > 0 && (
+                          <div className="bg-muted/20 p-3 rounded-lg">
+                            <h4 className="text-sm font-medium mb-2">Candidate Skills</h4>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {cvSkills.slice(0, 10).map((skill, i) => (
+                                <span
+                                  key={i}
+                                  className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs"
+                                >
+                                  {skill}
+                                </span>
+                              ))}
+                              {cvSkills.length > 10 && (
+                                <span className="text-xs text-muted-foreground">
+                                  +{cvSkills.length - 10} more
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* CV Button */}
+                        {application.cv?.id && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              // Navigate to profile page - using the proper route
+                              if (application.student?.id) {
+                                // Navigate to the profile page instead (assuming this is where student profiles are shown)
+                                router.push(`/profile?student_id=${application.student.id}`);
+                              } else {
+                                toast({
+                                  title: "Error",
+                                  description: "Cannot access student profile. Student ID not found.",
+                                  variant: "destructive",
+                                });
+                              }
+                            }}
+                            className="w-full"
+                          >
+                            <BookOpen className="h-4 w-4 mr-2" />
+                            View Student Profile
+                          </Button>
+                        )}
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-y-2 text-sm">
+                      {/* Right Column (7/12) - Application Info */}
+                      <div className="md:col-span-7 space-y-4">
+                        {/* Application Dates */}
+                        <div className="grid grid-cols-2 gap-3 text-sm mb-4 bg-muted/20 p-3 rounded-lg">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="h-4 w-4" />
                         <span>Applied:</span>
@@ -271,74 +435,72 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
                       <span className="font-medium">{formatDate(application.updated_at)}</span>
                     </div>
                     
-                    {/* CV has no direct file URL anymore, so we use the CV ID if available */}
-                    {application.cv?.id && (
-                      <div className="mt-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            toast({
-                              title: "Direct CV Preview Not Available",
-                              description: "Please contact the student for their resume",
-                              variant: "default",
-                            });
-                          }}
-                          className="w-full"
-                        >
-                          Request Resume/CV
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-3">
+                        {/* Status Info */}
                     <div>
                       <h4 className="text-sm font-medium mb-2">Application Status</h4>
-                      <div className="p-3 rounded-lg bg-muted flex items-start gap-3">
+                          <div className="p-3 rounded-lg bg-muted/50 flex items-start gap-3">
                         {application.status === 'shortlisted' ? (
-                          <CheckCircle className={cn("h-5 w-5 mt-0.5", "text-green-500")} />
+                              <CheckCircle className="h-5 w-5 mt-0.5 text-gray-800" />
                         ) : application.status === 'rejected' ? (
-                          <AlertCircle className={cn("h-5 w-5 mt-0.5", "text-red-500")} />
+                              <AlertCircle className="h-5 w-5 mt-0.5 text-gray-700" />
                         ) : application.status === 'reviewed' ? (
-                          <Clock className={cn("h-5 w-5 mt-0.5", "text-blue-500")} />
+                              <Clock className="h-5 w-5 mt-0.5 text-gray-600" />
                         ) : (
-                          <AlertCircle className={cn("h-5 w-5 mt-0.5", "text-yellow-500")} />
+                              <AlertCircle className="h-5 w-5 mt-0.5 text-gray-500" />
                         )}
                         <span className="text-sm">{getNextStepMessage(application.status)}</span>
                       </div>
                     </div>
                     
-                    <div className="flex gap-2 mt-3">
+                        {/* Cover Letter */}
+                        {application.cover_letter && (
+                          <div>
+                            <h4 className="text-sm font-medium mb-2">Cover Letter</h4>
+                            <div className="text-sm text-muted-foreground p-3 bg-muted/30 rounded-lg whitespace-pre-line">
+                              {application.cover_letter.split('\n').map((paragraph: string, i: number) => (
+                                <p key={i} className={i > 0 ? 'mt-2' : ''}>
+                                  {paragraph}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 mt-4">
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => router.push(`/employer/jobs/${params.id}/applications/${application.id}`)}
                         className="flex-1"
+                            onClick={() => {
+                              toast({
+                                title: "Application Details",
+                                description: "This feature is coming soon!",
+                              });
+                            }}
                       >
                         View Details
                       </Button>
                       <Button
                         size="sm"
                         className="flex-1"
+                            onClick={() => {
+                              toast({
+                                title: "Review Application",
+                                description: "This feature is coming soon!",
+                              });
+                            }}
                       >
                         Review
                       </Button>
-                    </div>
-                    
-                    {application.cover_letter && (
-                      <div>
-                        <h4 className="text-sm font-medium mb-1">Cover Letter</h4>
-                        <div className="text-sm text-muted-foreground line-clamp-3 italic p-3 bg-muted/50 rounded">
-                          "{application.cover_letter}"
                         </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

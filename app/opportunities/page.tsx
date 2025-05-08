@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import TinderCard from 'react-tinder-card'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Check, X, Briefcase, MapPin, Calendar, Undo2, DollarSign, Info, HelpCircle } from 'lucide-react'
+import { Loader2, Check, X, Briefcase, MapPin, Calendar, Undo2, DollarSign, Info, HelpCircle, ChevronRight, XIcon } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import { getMatchedJobsForCurrentUser, applyForJob, declineJob } from "@/lib/actions/opportunities"
 import { Job } from "@/lib/types/database"
@@ -16,6 +16,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link';
 
 // Define the extended Job type with match score
 interface JobWithMatchScore {
@@ -44,6 +46,8 @@ export default function OpportunitiesPage() {
   const [error, setError] = useState<string | null>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
   const { toast } = useToast()
+  
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
   // Keep track of removed jobs for undo functionality
   const [lastRemovedJob, setLastRemovedJob] = useState<{ job: JobWithMatchScore, direction: 'left' | 'right' } | null>(null)
@@ -255,43 +259,30 @@ export default function OpportunitiesPage() {
               key={job.id}
               onSwipe={(dir) => swiped(dir, job, index)}
               onCardLeftScreen={() => outOfFrame(job.title, index)}
-              preventSwipe={['up', 'down']} // Prevent vertical swipes
+              preventSwipe={['up', 'down']}
               swipeRequirementType="position"
               swipeThreshold={80}
               flickOnSwipe={true}
             >
-              {/* Bento Card for Job */}
-              <div className="w-full h-full overflow-hidden">
-                {/* Swipe indicators - only visible on hover */}
-                <div className="absolute inset-0 pointer-events-none z-10 flex">
-                  <div className="flex-1 apply-overlay flex items-center justify-center opacity-0 transition-opacity">
-                    <div className="bg-green-500/90 rounded-full p-3">
-                      <Check className="h-12 w-12 text-white" />
-                    </div>
-                  </div>
-                  <div className="flex-1 decline-overlay flex items-center justify-center opacity-0 transition-opacity">
-                    <div className="bg-red-500/90 rounded-full p-3">
-                      <X className="h-12 w-12 text-white" />
-                    </div>
-                  </div>
-                </div>
-                
-                <div 
+              <div className="w-full h-full overflow-hidden" style={{ opacity: expandedJobId === job.id ? 0 : 1, transition: 'opacity 0.1s' }}>
+                {/* Card Content Div - now wrapped with motion.div */}
+                <motion.div 
+                  layoutId={`card-container-${job.id}`}
                   className={cn(
-                    "group relative h-full flex flex-col transition-all duration-300",
-                    "border border-gray-100/80 dark:border-white/10 bg-white dark:bg-black rounded-xl",
-                    "hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgba(255,255,255,0.08)]",
+                    "group relative h-full flex flex-col transition-shadow duration-300", // Removed transition-all as layout handles it
+                    "border border-gray-100/80 dark:border-gray-700 bg-white dark:bg-black rounded-xl",
+                    "hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgba(255,255,255,0.1)]",
                     "will-change-transform touch-manipulation",
                     "overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent"
                   )}
                 >
-                  {/* Background pattern and gradient effect */}
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[length:6px_6px]" />
-                  </div>
+                  {/* Background pattern and gradient effect - keeping this subtle for dark mode */}
+                  <motion.div layout className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[length:6px_6px]" />
+                  </motion.div>
                   
                   {/* Header area with company and match score */}
-                  <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-primary/10 to-primary/5 border-b border-gray-100/80 dark:border-white/10">
+                  <motion.div layout="position" className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/5 dark:to-transparent border-b border-gray-100/80 dark:border-gray-700">
                     <div className="flex items-start gap-4">
                       {/* Company Logo */}
                       <CompanyLogo 
@@ -327,10 +318,10 @@ export default function OpportunitiesPage() {
                         </div>
                       )}
                     </div>
-                  </div>
+                  </motion.div>
                   
                   {/* Job details */}
-                  <div className="relative flex-grow p-5 space-y-4">
+                  <motion.div layout="position" className="relative flex-grow p-5 space-y-4">
                     {/* Job Details Pills */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="flex items-center space-x-2">
@@ -364,22 +355,38 @@ export default function OpportunitiesPage() {
                     </div>
                     
                     {/* Description */}
-                    <div className="mt-4">
+                    <motion.div layout="position" className="mt-4">
                       <h4 className="font-medium text-[15px] text-gray-900 dark:text-gray-100 tracking-tight mb-2">
                         Description
                       </h4>
-                      <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed space-y-2">
-                        {job.description?.split('\n').map((paragraph, i) => (
-                          paragraph.trim() ? 
-                            <p key={i} className="whitespace-pre-line">{paragraph}</p> : 
-                            <div key={i} className="h-2"></div>
-                        )) || 'No description provided.'}
+                      <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+                        <div className="line-clamp-[8]">
+                          {job.description?.split('\n')
+                            .filter(p => p.trim())
+                            .map((paragraph, i) => (
+                              <p key={i} className="whitespace-pre-line mb-2">
+                                {paragraph}
+                              </p>
+                            )) || <p>No description provided.</p>}
+                        </div>
+                        
+                        {/* See more link if description is longer than a certain threshold (e.g., 300 chars) */}
+                        {job.description && job.description.length > 300 && (
+                          <div className="mt-3">
+                            <Link 
+                              href={`/opportunities/${job.id}`}
+                              className="inline-flex items-center text-sm text-primary hover:text-primary/90 font-medium cursor-pointer px-2 py-1 rounded hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors"
+                            >
+                              Show Full Description <ChevronRight className="ml-1 h-4 w-4" />
+                            </Link>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </motion.div>
                     
                     {/* Skills Tags */}
                     {job.required_skills && Array.isArray(job.required_skills) && job.required_skills.length > 0 && (
-                      <div className="mt-4">
+                      <motion.div layout="position" className="mt-4">
                         <h4 className="font-medium text-[15px] text-gray-900 dark:text-gray-100 tracking-tight mb-2">
                           Required Skills
                         </h4>
@@ -393,20 +400,20 @@ export default function OpportunitiesPage() {
                             </span>
                           ))}
                         </div>
-                      </div>
+                      </motion.div>
                     )}
                     
                     {/* Action Hint */}
-                    <div className="flex justify-end mt-6">
+                    <motion.div layout="position" className="flex justify-end mt-6">
                       <span className="text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:underline">
                         Swipe right to apply →
                       </span>
-                    </div>
-                  </div>
+                    </motion.div>
+                  </motion.div>
                   
                   {/* Border gradient effect */}
-                  <div className="absolute inset-0 -z-10 rounded-xl p-px bg-gradient-to-br from-transparent via-primary/10 to-transparent dark:via-primary/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                </div>
+                  <motion.div layout className="absolute inset-0 -z-10 rounded-xl p-px bg-gradient-to-br from-transparent via-primary/10 to-transparent dark:via-primary/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                </motion.div>
               </div>
             </TinderCard>
           ))
@@ -482,13 +489,13 @@ const styles = `
   transform: scale(1.02);
 }
 
-.active-card:hover .apply-overlay {
+/* .active-card:hover .apply-overlay {
   opacity: 0;
 }
 
 .active-card:hover .decline-overlay {
   opacity: 0;
-}
+} */ /* Commented out as overlays are removed */
 
 .active-card:hover {
   transform: scale(1.04);
@@ -500,7 +507,7 @@ const styles = `
   transition: none;
 }
 
-/* Hover effects for directional movement */
+/* Hover effects for directional movement - REMOVED as overlays are gone
 .active-card.moving-right .apply-overlay,
 .active-card:active.moving-right .apply-overlay {
   opacity: 0.8 !important;
@@ -510,6 +517,7 @@ const styles = `
 .active-card:active.moving-left .decline-overlay {
   opacity: 0.8 !important;
 }
+*/
 
 /* Card swipe animation classes */
 @keyframes swipeRight {
@@ -536,7 +544,8 @@ if (typeof window !== 'undefined') {
   styleSheet.innerText = styles
   document.head.appendChild(styleSheet)
   
-  // Add event listeners to handle dragging direction classes
+  // REMOVED JavaScript for adding moving-left/moving-right classes
+  /*
   setTimeout(() => {
     const cards = document.querySelectorAll('.swipe-card')
     cards.forEach(card => {
@@ -582,4 +591,5 @@ if (typeof window !== 'undefined') {
       }
     })
   }, 1000) // Small delay to ensure cards are loaded
+  */
 }

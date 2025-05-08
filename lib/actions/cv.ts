@@ -135,7 +135,7 @@ export async function uploadAndCreateCv(
 ): Promise<ApiResponse<CV>> {
   try {
     // Upload to Cloudinary
-    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs');
+    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs', 'application/pdf');
     
     if (!uploadResult.success) {
       throw new Error(uploadResult.error || 'Upload failed');
@@ -309,5 +309,42 @@ export async function getCurrentUserMostRecentCv(): Promise<ApiResponse<CV>> {
   } catch (error) {
     console.error("Error fetching current user's CV:", error);
     return { success: false, error: "Failed to fetch CV data" };
+  }
+}
+
+// Get the most recent CV for a specific user ID (useful for viewing other students' profiles)
+export async function getStudentMostRecentCv(studentId: string): Promise<ApiResponse<CV>> {
+  try {
+    // Get the most recent active CV for this student
+    const { data: cv, error } = await supabase
+      .from("cvs")
+      .select("*")
+      .eq("user_id", studentId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      // If there's no active CV, try to get the most recent one regardless of active status
+      if (error.code === 'PGRST116') {
+        const { data: fallbackCv, error: fallbackError } = await supabase
+          .from("cvs")
+          .select("*")
+          .eq("user_id", studentId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+          
+        if (fallbackError) throw fallbackError;
+        return { success: true, data: fallbackCv };
+      }
+      throw error;
+    }
+    
+    return { success: true, data: cv };
+  } catch (error) {
+    console.error("Error fetching student CV:", error);
+    return { success: false, error: "Failed to fetch student CV" };
   }
 } 

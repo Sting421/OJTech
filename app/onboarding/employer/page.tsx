@@ -65,7 +65,7 @@ function EmployerOnboardingComponent() {
       if (result.success && result.data) {
         const employerData = result.data;
         const initialOnboardingData = {
-          companyName: employerData.company_name || companyName,
+          companyName: employerData.name || companyName,
           companyWebsite: employerData.company_website || "",
           companySize: employerData.company_size || "",
           industry: employerData.industry || "",

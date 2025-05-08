@@ -142,10 +142,9 @@ export default function JobList({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
             <SelectItem value="draft">Draft</SelectItem>
             <SelectItem value="closed">Closed</SelectItem>
-            <SelectItem value="filled">Filled</SelectItem>
           </SelectContent>
         </Select>
 

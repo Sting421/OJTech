@@ -7,6 +7,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, LayoutDashboard, BriefcaseBusiness, Users, Settings, Building } from "lucide-react";
+import { EmployerBreadcrumb } from "@/components/employer/EmployerBreadcrumb";
 
 export default function EmployerLayout({
   children,
@@ -62,8 +63,6 @@ export default function EmployerLayout({
 
   return (
     <div className="flex min-h-screen">
-
-
       {/* Mobile Navigation */}
       <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
         <Card>
@@ -87,7 +86,12 @@ export default function EmployerLayout({
 
       {/* Main content */}
       <div className="flex flex-col flex-1 pt-16 pb-16 md:pb-0">
-        <div className="px-4 sm:px-6 md:px-8 py-6">{children}</div>
+        <div className="container mx-auto px-4 sm:px-6 md:px-8 py-6">
+          {/* Breadcrumb navigation */}
+          <EmployerBreadcrumb />
+          
+          {children}
+        </div>
       </div>
     </div>
   );

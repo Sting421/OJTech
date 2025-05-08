@@ -420,7 +420,7 @@ function debugQuery(query: any, label: string) {
   }
 }
 
-export async function getEmployerJobs(page: number = 1, limit: number = 10) {
+export async function getEmployerJobs(page: number = 1, limit: number = 10, status: string | null = null, search: string = "") {
   try {
     console.log('[JOB] Starting getEmployerJobs function');
     const supabaseClient = createServerComponentClient({ cookies });
@@ -454,35 +454,79 @@ export async function getEmployerJobs(page: number = 1, limit: number = 10) {
     
     console.log('[JOB] Fetching jobs for employer_id:', employerIdForQuery);
     
-    // Get total count using both possible employer IDs
-    const countQuery = supabaseClient
-      .from('jobs')
-      .select('*', { count: 'exact', head: true })
-      .or(`employer_id.eq.${employerIdForQuery},employer_id.eq.${user.id}`);
+    // Build the base query with filter conditions
+    let query = supabaseClient.from('jobs').select('*');
     
-    debugQuery(countQuery, 'Count query');
-    const { count: totalJobs, error: countError } = await countQuery;
+    // Filter by employer ID using in()
+    query = query.in('employer_id', [employerIdForQuery, user.id]);
+    
+    // Add status filter if provided
+    if (status) {
+      query = query.eq('status', status.toLowerCase());
+    }
+    
+    // Add search filter if provided
+    if (search) {
+      // We'll do a basic client-side search since complex or() doesn't work
+      const { data: allJobs, error: jobsError } = await query;
+      
+      if (jobsError) {
+        console.error('[JOB] Error fetching jobs:', jobsError);
+        return { success: false, error: jobsError.message };
+      }
+      
+      // Filter jobs by search terms client-side
+      const searchLower = search.toLowerCase();
+      const filteredJobs = allJobs.filter(job => 
+        job.title.toLowerCase().includes(searchLower) || 
+        job.description.toLowerCase().includes(searchLower) ||
+        (job.company_name && job.company_name.toLowerCase().includes(searchLower))
+      );
+      
+      // Apply pagination in memory
+      const start = (page - 1) * limit;
+      const end = start + limit;
+      const paginatedJobs = filteredJobs.slice(start, end);
+      
+      // Process jobs and add application counts
+      const jobsWithCounts = await Promise.all(paginatedJobs.map(async (job) => {
+        const appCount = await getApplicationCount(job.id, supabaseClient);
+        return {
+          ...job,
+          required_skills: parseSkills(job.required_skills),
+          preferred_skills: parseSkills(job.preferred_skills),
+          application_count: appCount
+        };
+      }));
+      
+      return { 
+        success: true, 
+        data: { 
+          jobs: jobsWithCounts, 
+          total: filteredJobs.length 
+        } 
+      };
+    }
+    
+    // Without search, use database queries with pagination
+    // First get total count
+    const { count, error: countError } = await query.count('exact');
 
     if (countError) {
       console.error('[JOB] Error counting jobs:', countError);
-      return { success: false, error: countError.message, details: countError };
+      return { success: false, error: countError.message };
     }
-
-    // Now fetch jobs first without application count
-    const jobsQuery = supabaseClient
-      .from('jobs')
-      .select('*')
-      .or(`employer_id.eq.${employerIdForQuery},employer_id.eq.${user.id}`)
+    
+    const totalJobs = count || 0;
+    
+    // Then fetch paginated data
+    const { data: jobs, error: jobsError } = await query
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
     
-    debugQuery(jobsQuery, 'Jobs query');
-    
-    const { data: jobs, error: jobsError } = await jobsQuery;
-    
     if (jobsError) {
       console.error('[JOB] Error fetching jobs:', jobsError);
-      return { success: false, error: jobsError.message, details: jobsError };
+      return { success: false, error: jobsError.message };
     }
     
     if (!jobs || jobs.length === 0) {
@@ -491,17 +535,6 @@ export async function getEmployerJobs(page: number = 1, limit: number = 10) {
     }
     
     console.log('[JOB] Found jobs:', jobs.length);
-    
-    // Debug the first job data to understand what's happening with required_skills
-    const firstJob = jobs[0];
-    console.log('[JOB] First job data:', {
-      id: firstJob.id,
-      title: firstJob.title,
-      requiredSkillsType: typeof firstJob.required_skills,
-      requiredSkillsValue: firstJob.required_skills,
-      preferredSkillsType: typeof firstJob.preferred_skills,
-      preferredSkillsValue: firstJob.preferred_skills
-    });
     
     // Now get application counts for each job
     const jobsWithCounts = await Promise.all(jobs.map(async (job) => {
@@ -540,10 +573,30 @@ export async function getEmployerJobs(page: number = 1, limit: number = 10) {
       }
     }));
     
-    return { success: true, data: { jobs: jobsWithCounts, total: totalJobs || 0 } };
+    return { success: true, data: { jobs: jobsWithCounts, total: totalJobs } };
   } catch (error) {
     console.error('[JOB] Unexpected error in getEmployerJobs:', error);
     return { success: false, error: "Failed to fetch employer jobs" };
+  }
+}
+
+// Helper function to get application count for a job
+async function getApplicationCount(jobId: string, supabaseClient: any): Promise<number> {
+  try {
+    const { count, error } = await supabaseClient
+      .from('job_applications')
+      .select('*', { count: 'exact', head: true })
+      .eq('job_id', jobId);
+      
+    if (error) {
+      console.error(`[JOB] Error counting applications for job ${jobId}:`, error);
+      return 0;
+    }
+    
+    return count || 0;
+  } catch (error) {
+    console.error(`[JOB] Error getting application count for job ${jobId}:`, error);
+    return 0;
   }
 }
 

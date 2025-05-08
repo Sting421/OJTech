@@ -22,8 +22,7 @@ const renderStatusBadge = (status: string) => {
   let textColor = "";
 
   switch (status.toLowerCase()) {
-    case "active":
-    case "open": // Assuming 'open' is similar to 'active'
+    case "open":
       icon = <CheckCircle2 className="h-3 w-3 mr-1.5" />;
       badgeVariant = "default";
       // Relies on primary color for default badge
@@ -37,11 +36,6 @@ const renderStatusBadge = (status: string) => {
       icon = <XCircle className="h-3 w-3 mr-1.5" />;
       badgeVariant = "outline";
       textColor = "text-red-600 dark:text-red-400";
-      break;
-    case "filled":
-      icon = <CheckCircle2 className="h-3 w-3 mr-1.5" />;
-      badgeVariant = "default";
-      // Relies on primary color for default badge, consider a specific blue if needed
       break;
     default:
       icon = <AlertCircle className="h-3 w-3 mr-1.5" />;
@@ -83,7 +77,7 @@ export function EmployerJobCard({
       <div className="p-4 sm:p-6 flex-grow">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1 min-w-0">
-            <Link href={`/employer/jobs/${job.id}/applications`} className="group-hover:text-brand transition-colors">
+            <Link href={`/employer/jobs/${job.id}`} className="group-hover:text-brand transition-colors">
               <h3 className="text-lg font-semibold leading-tight truncate group-hover:underline">
                 {job.title}
               </h3>

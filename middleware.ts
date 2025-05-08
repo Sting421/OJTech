@@ -29,6 +29,10 @@ export async function middleware(request: NextRequest) {
   // Get path info
   const pathname = request.nextUrl.pathname;
   
+  // Check for query parameters that might affect access restrictions
+  const searchParams = request.nextUrl.searchParams;
+  const hasStudentIdParam = searchParams.has('student_id');
+  
   // Define protected routes and their allowed roles
   const protectedRoutes: Record<string, UserRole[]> = {
     "/admin": ["admin"],
@@ -63,6 +67,13 @@ export async function middleware(request: NextRequest) {
 
       const userRole = profileData?.role as UserRole;
       const allowedRoles = protectedRoutes[matchingRoute];
+
+      // Special handling for profile routes with student_id parameter
+      // Only employers and admins can view other students' profiles
+      if (pathname === "/profile" && hasStudentIdParam && 
+          userRole === "student" && searchParams.get('student_id') !== session.user.id) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
 
       // Redirect if user's role is not allowed for this route
       if (!allowedRoles.includes(userRole)) {

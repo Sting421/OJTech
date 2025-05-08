@@ -1,10 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils/date-utils"
 import { Progress } from "@/components/ui/progress"
-import { Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building } from "lucide-react"
+import { Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building, ChevronDown, ChevronUp, Mail } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 // Get the next step message based on application status
 const getNextStepMessage = (status: string) => {
@@ -27,14 +28,14 @@ const getNextStepMessage = (status: string) => {
 // Map job application status to display colors
 const getStatusColor = (status: string) => {
   const statusColors = {
-    'pending': 'bg-yellow-500',
-    'reviewed': 'bg-blue-500',
-    'shortlisted': 'bg-green-500',
-    'rejected': 'bg-red-500',
-    'hired': 'bg-purple-500'
+    'pending': 'bg-gray-500',
+    'reviewed': 'bg-gray-600',
+    'shortlisted': 'bg-gray-800',
+    'rejected': 'bg-gray-700',
+    'hired': 'bg-gray-900'
   } as const
 
-  return statusColors[status as keyof typeof statusColors] || 'bg-gray-500'
+  return statusColors[status as keyof typeof statusColors] || 'bg-gray-400'
 }
 
 export interface ApplicationCardProps {
@@ -45,6 +46,7 @@ export interface ApplicationCardProps {
     created_at: string
     updated_at: string
     cover_letter?: string
+    match_score?: number
     job?: {
       id: string
       title: string
@@ -67,6 +69,8 @@ export function ApplicationCard({
   onViewDetails,
   className
 }: ApplicationCardProps) {
+  const [showFullCoverLetter, setShowFullCoverLetter] = useState(false);
+  
   const statusIcon = application.status === 'pending' 
     ? AlertCircle 
     : application.status === 'shortlisted' 
@@ -100,55 +104,36 @@ export function ApplicationCard({
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-y-2 text-sm">
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 <span>Applied:</span>
+                <span className="font-medium text-foreground">{formatDate(application.created_at)}</span>
               </div>
-              <span className="font-medium">{formatDate(application.created_at)}</span>
+            </div>
               
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 <span>Last Updated:</span>
+                <span className="font-medium text-foreground">{formatDate(application.updated_at)}</span>
               </div>
-              <span className="font-medium">{formatDate(application.updated_at)}</span>
+            </div>
               
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <Briefcase className="h-4 w-4" />
                 <span>Job Type:</span>
+                <span className="font-medium text-foreground">{application.job?.job_type || "Not specified"}</span>
               </div>
-              <span className="font-medium">{application.job?.job_type || "Not specified"}</span>
+            </div>
               
-              <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4" />
                 <span>Location:</span>
+                <span className="font-medium text-foreground">{application.job?.location || "Not specified"}</span>
               </div>
-              <span className="font-medium">{application.job?.location || "Not specified"}</span>
-            </div>
-            
-            <div className="pt-2">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-medium text-sm">Skills Match:</span>
-                <span className={cn(
-                  "font-bold text-sm",
-                  matchPercentage >= 80 ? "text-green-500" : 
-                  matchPercentage >= 60 ? "text-blue-500" : 
-                  matchPercentage >= 40 ? "text-yellow-500" : 
-                  "text-red-500"
-                )}>
-                  {matchPercentage}%
-                </span>
-              </div>
-              <Progress 
-                value={matchPercentage} 
-                className={cn(
-                  "h-2",
-                  matchPercentage >= 80 ? "progress-green progress-bg-green" : 
-                  matchPercentage >= 60 ? "progress-blue progress-bg-blue" : 
-                  matchPercentage >= 40 ? "progress-yellow progress-bg-yellow" : 
-                  "progress-red progress-bg-red"
-                )}
-              />
             </div>
           </div>
           
@@ -159,10 +144,10 @@ export function ApplicationCard({
                 {React.createElement(statusIcon, { 
                   className: cn(
                     "h-5 w-5 mt-0.5",
-                    application.status === 'shortlisted' ? "text-green-500" :
-                    application.status === 'rejected' ? "text-red-500" :
-                    application.status === 'reviewed' ? "text-blue-500" :
-                    "text-yellow-500"
+                    application.status === 'shortlisted' ? "text-gray-900" :
+                    application.status === 'rejected' ? "text-gray-700" :
+                    application.status === 'reviewed' ? "text-gray-800" :
+                    "text-gray-600"
                   ) 
                 })}
                 <span className="text-sm">{getNextStepMessage(application.status)}</span>
@@ -193,17 +178,49 @@ export function ApplicationCard({
                 )}
               </div>
             </div>
+          </div>
+        </div>
             
             {application.cover_letter && (
-              <div>
-                <h4 className="text-sm font-medium mb-1">Your Cover Letter</h4>
-                <div className="text-sm text-muted-foreground line-clamp-3 italic">
-                  "{application.cover_letter}"
+          <div className="mt-6 pt-4 border-t border-border/50">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Cover Letter
+              </h4>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 px-2 text-xs"
+                onClick={() => setShowFullCoverLetter(!showFullCoverLetter)}
+              >
+                {showFullCoverLetter ? (
+                  <>
+                    <ChevronUp className="h-4 w-4 mr-1" />
+                    Show Less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-4 w-4 mr-1" />
+                    Show Full Letter
+                  </>
+                )}
+              </Button>
+            </div>
+            
+            <div className={cn(
+              "text-sm text-muted-foreground bg-muted/30 rounded-lg p-4 whitespace-pre-line",
+              !showFullCoverLetter && "max-h-24 overflow-hidden relative"
+            )}>
+              {application.cover_letter}
+              
+              {/* Fade out effect when collapsed */}
+              {!showFullCoverLetter && (
+                <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background/80 to-transparent"></div>
+              )}
                 </div>
               </div>
             )}
-          </div>
-        </div>
       </div>
     </div>
   )

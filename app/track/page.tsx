@@ -32,23 +32,109 @@ const getStatusColor = (status: string) => {
   return statusColors[status as keyof typeof statusColors] || 'bg-gray-500'
 }
 
-// Calculate match percentage based on skills
-const calculateSkillMatch = (userSkills: string[], requiredSkills: string[]) => {
+// Function to process skill text for better matching
+const normalizeSkill = (skill: string): string => {
+  return skill
+    .toLowerCase()
+    .replace(/[-_.&+,/()]/g, ' ')  // Replace common separators with spaces
+    .replace(/\s+/g, ' ')          // Replace multiple spaces with single space
+    .trim();                        // Remove leading/trailing spaces
+}
+
+// Calculate skill match percentage with improved algorithm
+const calculateSkillMatch = (userSkills: string[], requiredSkills: string[]): number => {
   if (!userSkills || !requiredSkills || requiredSkills.length === 0) return 0;
   
-  // Convert to lowercase for case-insensitive matching
-  const userSkillsLower = userSkills.map(skill => skill.toLowerCase());
-  const requiredSkillsLower = requiredSkills.map(skill => skill.toLowerCase());
+  // Normalize skills for better matching
+  const userSkillsNormalized = userSkills.map(normalizeSkill);
+  const requiredSkillsNormalized = requiredSkills.map(normalizeSkill);
   
-  // Count matches
-  let matches = 0;
-  for (const skill of requiredSkillsLower) {
-    if (userSkillsLower.some(userSkill => userSkill.includes(skill) || skill.includes(userSkill))) {
-      matches++;
+  // Create variant forms of skills
+  const userSkillVariants = new Set<string>();
+  userSkillsNormalized.forEach(skill => {
+    userSkillVariants.add(skill);
+    
+    // Add common abbreviations and variations
+    const words = skill.split(' ');
+    if (words.length > 1) {
+      // Add acronym (e.g., "React Native" -> "rn")
+      userSkillVariants.add(words.map(word => word[0]).join(''));
+      
+      // Add first word (e.g., "javascript programming" -> "javascript")
+      userSkillVariants.add(words[0]);
     }
-  }
+    
+    // Handle common skill variations
+    const variations: Record<string, string[]> = {
+      'javascript': ['js', 'es6', 'ecmascript'],
+      'typescript': ['ts'],
+      'react': ['reactjs', 'react.js'],
+      'node': ['nodejs', 'node.js'],
+      'python': ['py'],
+      'java': ['java programming'],
+      'c#': ['csharp', 'c sharp'],
+      'machine learning': ['ml'],
+      'artificial intelligence': ['ai'],
+      'aws': ['amazon web services'],
+      'azure': ['microsoft azure'],
+      'ui': ['user interface'],
+      'ux': ['user experience'],
+    };
+    
+    // Add variations
+    Object.entries(variations).forEach(([key, vals]) => {
+      if (skill.includes(key)) {
+        vals.forEach(v => userSkillVariants.add(v));
+      }
+      if (vals.some(v => skill.includes(v))) {
+        userSkillVariants.add(key);
+      }
+    });
+  });
   
-  return Math.round((matches / requiredSkills.length) * 100);
+  // Calculate matches with weighted scoring
+  let totalScore = 0;
+  const requiredSkillsCount = requiredSkillsNormalized.length;
+  
+  requiredSkillsNormalized.forEach(requiredSkill => {
+    // Exact match (highest weight)
+    if (userSkillVariants.has(requiredSkill)) {
+      totalScore += 1.0;
+      return;
+    }
+    
+    // Partial matches (lower weights)
+    let bestPartialScore = 0;
+    
+    userSkillVariants.forEach(userSkill => {
+      // Skill contains the required skill or vice versa (e.g., "React" matches "React Native")
+      if (userSkill.includes(requiredSkill) || requiredSkill.includes(userSkill)) {
+        const containmentScore = 0.8;
+        bestPartialScore = Math.max(bestPartialScore, containmentScore);
+    }
+      
+      // Individual word matches (for multi-word skills)
+      const userWords = userSkill.split(' ');
+      const requiredWords = requiredSkill.split(' ');
+      
+      if (userWords.length > 1 || requiredWords.length > 1) {
+        const commonWords = userWords.filter(word => 
+          word.length > 2 && requiredWords.some(reqWord => reqWord === word)
+        );
+        
+        if (commonWords.length > 0) {
+          const wordMatchScore = 0.5 * (commonWords.length / Math.max(userWords.length, requiredWords.length));
+          bestPartialScore = Math.max(bestPartialScore, wordMatchScore);
+        }
+      }
+    });
+    
+    totalScore += bestPartialScore;
+  });
+  
+  // Convert to percentage and ensure within bounds
+  const matchPercentage = Math.round((totalScore / requiredSkillsCount) * 100);
+  return Math.min(100, Math.max(0, matchPercentage));
 };
 
 // Get the next step message based on application status
@@ -245,7 +331,12 @@ export default function TrackApplicationPage() {
                   {filteredApplications.map(app => {
                     // Get required skills from job data if available
                     const requiredSkills = app.job?.required_skills || [];
-                    const matchPercentage = calculateSkillMatch(userSkills, Array.isArray(requiredSkills) ? requiredSkills : []);
+                    
+                    // Use the match_score from the application if available (from database)
+                    // Otherwise fall back to calculating it on the frontend
+                    const matchPercentage = app.match_score !== undefined 
+                      ? app.match_score 
+                      : calculateSkillMatch(userSkills, Array.isArray(requiredSkills) ? requiredSkills : []);
                     
                     return (
                       <ApplicationCard
