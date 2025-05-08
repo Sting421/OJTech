@@ -36,50 +36,99 @@ export async function generateJobMatches(
     }
 
     console.log("[JOB-MATCHING] CV data retrieved, skills present:", !!cv.skills);
-    if (!cv.skills) {
-      return { success: false, error: "No skills data available for CV" };
+    
+    // Verify skills data is valid and not empty
+    if (!cv.skills || !cv.skills.skills || !Array.isArray(cv.skills.skills) || cv.skills.skills.length === 0) {
+      console.error("[JOB-MATCHING] No valid skills data available in CV");
+      return { success: false, error: "No valid skills data available for CV - ensure CV processing is complete" };
     }
 
-    // 1b. Get student profile for this user
+    // 1b. Get student profile for this user - FIXED APPROACH
     console.log("[JOB-MATCHING] Fetching student profile for user:", cv.user_id);
-    // We need to find the student profile associated with this CV
-    // The database doesn't have user_id or profile_id columns, but has school_email
-    // Let's first get the user's email
-    const { data: userProfile, error: userProfileError } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("id", cv.user_id)
-      .single();
     
-    if (userProfileError) {
-      console.error("[JOB-MATCHING] Error fetching user profile:", userProfileError);
-      return { success: false, error: "Failed to fetch user profile" };
-    }
+    // CRITICAL FIX: First check if student profile exists with user_id as the ID
+    // This is the most direct and reliable approach
+    let studentId = "";
+    let studentProfile = null;
     
-    if (!userProfile || !userProfile.email) {
-      console.error("[JOB-MATCHING] No email found for user:", cv.user_id);
-      return { success: false, error: "No email found for this user" };
-    }
-    
-    // Now find the student profile with this email
-    const { data: studentProfile, error: studentError } = await supabase
+    // Try to get student profile directly by user_id
+    const { data: directProfile, error: directError } = await supabase
       .from("student_profiles")
       .select("id")
-      .eq("school_email", userProfile.email)
+      .eq("id", cv.user_id)
       .maybeSingle();
-
-    if (studentError) {
-      console.error("[JOB-MATCHING] Error fetching student profile:", studentError);
-      return { success: false, error: "Failed to fetch student profile" };
+      
+    if (!directError && directProfile) {
+      // User ID exists as a student profile
+      studentProfile = directProfile;
+      studentId = studentProfile.id;
+      console.log("[JOB-MATCHING] Found student profile by direct ID match:", studentId);
+    } else {
+      // If not found directly, try with email lookup
+      // Get user email from profiles
+      const { data: userProfile, error: userProfileError } = await supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("id", cv.user_id)
+        .single();
+      
+      if (userProfileError || !userProfile || !userProfile.email) {
+        console.error("[JOB-MATCHING] Error or no email found for user:", cv.user_id);
+        return { success: false, error: "No email found for this user" };
+      }
+      
+      // Try to find by email
+      const { data: emailProfile, error: emailError } = await supabase
+        .from("student_profiles")
+        .select("id")
+        .eq("school_email", userProfile.email)
+        .maybeSingle();
+        
+      if (!emailError && emailProfile) {
+        studentProfile = emailProfile;
+        studentId = studentProfile.id;
+        console.log("[JOB-MATCHING] Found student profile by email match:", studentId);
+      }
     }
 
+    // If no profile found through any method, create one now
     if (!studentProfile) {
-      console.error("[JOB-MATCHING] No student profile found for email:", userProfile.email);
-      return { success: false, error: "No student profile found for this CV" };
+      console.log("[JOB-MATCHING] No student profile found - creating a new student profile");
+      
+      // Get user email from profiles
+      const { data: userProfile, error: userProfileError } = await supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("id", cv.user_id)
+        .single();
+      
+      if (userProfileError || !userProfile || !userProfile.email) {
+        console.error("[JOB-MATCHING] Error or no email found for user:", cv.user_id);
+        return { success: false, error: "No email found for this user" };
+      }
+      
+      // Create a minimal student profile using user_id as the ID
+      const { data: newProfile, error: createError } = await supabase
+        .from("student_profiles")
+        .insert([{
+          id: cv.user_id, // CRITICAL FIX: Use user_id as the student profile id
+          full_name: userProfile.full_name || "",
+          school_email: userProfile.email,
+          university: "",
+          course: "",
+          year_level: 1
+        }])
+        .select()
+        .single();
+        
+      if (createError || !newProfile) {
+        console.error("[JOB-MATCHING] Failed to create student profile:", createError);
+        return { success: false, error: "Failed to create student profile for job matching" };
+      }
+      
+      studentId = newProfile.id;
+      console.log("[JOB-MATCHING] Successfully created new student profile with ID:", studentId);
     }
-
-    const studentId = studentProfile.id;
-    console.log("[JOB-MATCHING] Found student profile:", studentId);
 
     // 2. Get active jobs
     console.log("[JOB-MATCHING] Fetching active jobs from Supabase");

@@ -9,8 +9,8 @@ import {
   isValidPdfBase64, 
   extractTextFromPdfBuffer 
 } from '@/lib/utils/pdf-helper';
-import { uploadFileToCloudinary } from "@/lib/actions/upload";
 import { analyzeResume } from "./resume-analyzer";
+import { generateJobMatches } from "./job-matching";
 
 // Configure Gemini API
 const API_KEY = process.env.GEMINI_API_KEY;
@@ -426,17 +426,6 @@ export async function uploadAndParseCV(
 ): Promise<ApiResponse<CV>> {
   console.log(`Starting CV parsing for user: ${userId}`);
   try {
-    // First, upload the file to Cloudinary - we'll store it externally even though we don't track the URL
-    console.log("Uploading CV to Cloudinary...");
-    const uploadResult = await uploadFileToCloudinary(fileBase64, 'cvs', 'application/pdf');
-    
-    if (!uploadResult.success || !uploadResult.data) {
-      console.error("Failed to upload CV to Cloudinary:", uploadResult.error);
-      throw new Error(uploadResult.error || "Failed to upload CV");
-    }
-    
-    console.log(`Successfully uploaded CV to Cloudinary: ${uploadResult.data.secure_url}`);
-    
     // Extract GitHub profile from PDF content
     console.log("Extracting GitHub profile from CV...");
     let githubProfile = null;
@@ -487,85 +476,136 @@ export async function uploadAndParseCV(
     
     console.log(`CV record created successfully with ID: ${cv.id}`);
     
-    // 2. Update profile flags and GitHub profile if found
-    try {
-      console.log("Updating profile flags and GitHub profile after CV parsing...");
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("has_uploaded_cv, github_profile")
-        .eq("id", userId)
-        .single();
+    // 2. Update profile flags and GitHub profile if found - WITH EXPLICIT RETRY LOGIC
+    let profileUpdateSuccess = false;
+    let profileRetryCount = 0;
+    const maxProfileRetries = 3;
+    
+    while (!profileUpdateSuccess && profileRetryCount < maxProfileRetries) {
+      try {
+        console.log(`Updating profile flags and GitHub profile (attempt ${profileRetryCount + 1})...`);
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("has_uploaded_cv, github_profile")
+          .eq("id", userId)
+          .single();
+          
+        // Prepare update data
+        const updateData: any = { 
+          has_uploaded_cv: true,
+          has_completed_onboarding: true // Mark onboarding as completed immediately
+        };
         
-      // Prepare update data
-      const updateData: any = { 
-        has_uploaded_cv: true,
-        has_completed_onboarding: true // Mark onboarding as completed immediately
-      };
-      
-      // Only set GitHub profile if it was found and the user doesn't already have one
-      if (githubProfile && (!profileData?.github_profile || profileData.github_profile === '')) {
-        updateData.github_profile = githubProfile;
-        console.log(`Setting GitHub profile from CV: ${githubProfile}`);
+        // Only set GitHub profile if it was found and the user doesn't already have one
+        if (githubProfile && (!profileData?.github_profile || profileData.github_profile === '')) {
+          updateData.github_profile = githubProfile;
+          console.log(`Setting GitHub profile from CV: ${githubProfile}`);
+        }
+        
+        // Update the profile
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update(updateData)
+          .eq("id", userId);
+        
+        if (updateError) {
+          throw updateError;
+        } else {
+          console.log("Profile CV upload flag and onboarding completion updated successfully");
+          profileUpdateSuccess = true;
+        }
+      } catch (profileError) {
+        console.error(`Error updating profile flags (attempt ${profileRetryCount + 1}):`, profileError);
+        profileRetryCount++;
+        
+        if (profileRetryCount < maxProfileRetries) {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
-      
-      // Update the profile
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update(updateData)
-        .eq("id", userId);
-      
-      if (updateError) {
-        console.error("Error updating profile:", updateError);
-      } else {
-        console.log("Profile CV upload flag and onboarding completion updated successfully");
-      }
-    } catch (profileError) {
-      // Log error but don't fail the entire operation
-      console.error("Error updating profile flags:", profileError);
     }
     
-    // 3. Parse the CV and extract information asynchronously using the PDF content in memory
-    // We don't await this to make the parsing process faster
-    console.log("Starting asynchronous CV processing for detailed analysis...");
-    processCV(cv.id, fileBase64)
-      .then(async () => {
-        // 4. Once the CV is processed, trigger the resume analysis
-        console.log("CV processing completed, now triggering resume analysis...");
-        try {
-          // Add a small delay to ensure skills data is fully saved
-          // This helps avoid race conditions where analysis starts before skills are fully saved
-          console.log("Waiting 3 seconds before starting analysis to ensure data is settled...");
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          // Start resume analysis in the background with retry logic
-          const analyzeWithRetry = async (retries = 2) => {
-            try {
-              console.log(`Attempting to analyze CV (attempt ${3 - retries}/3)...`);
-              return await analyzeResume(userId, cv.id);
-            } catch (err) {
-              console.error(`Analysis attempt failed: ${err}`);
-              if (retries > 0) {
-                console.log(`Retrying analysis in 2 seconds... (${retries} retries left)`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                return analyzeWithRetry(retries - 1);
-              }
-              throw err;
-            }
-          };
-          
-          // Start the analysis with retry logic
-          analyzeWithRetry().catch(analysisErr => {
-            console.error("Background CV analysis failed after all retry attempts:", analysisErr);
-          });
-        } catch (analysisError) {
-          console.error("Error starting resume analysis:", analysisError);
-        }
-      })
-      .catch(err => {
-        console.error("Background CV processing failed:", err);
-      });
+    if (!profileUpdateSuccess) {
+      console.error("Failed to update profile after multiple attempts");
+    }
     
-    console.log("CV parsing initiated, detailed analysis will continue in background");
+    // 3. Process the CV and extract information using the PDF content in memory
+    // Changed to synchronous processing to ensure student profile exists and skills are available 
+    // before job matching is triggered
+    console.log("Starting synchronous CV processing for detailed analysis...");
+    try {
+      // Process CV synchronously
+      const processingResult = await processCV(cv.id, fileBase64);
+      if (!processingResult.success) {
+        console.error("CV processing completed with errors:", processingResult.error);
+      } else {
+        console.log("CV processing completed successfully");
+      }
+
+      // 4. Create student profile if it doesn't exist
+      console.log("Ensuring student profile exists before job matching...");
+      await ensureStudentProfileExists(userId);
+
+      // 5. Once the CV is processed, trigger the resume analysis
+      console.log("Triggering resume analysis...");
+      try {
+        // Start resume analysis in the background with retry logic
+        const analyzeWithRetry = async (retries = 2) => {
+          try {
+            console.log(`Attempting to analyze CV (attempt ${3 - retries}/3)...`);
+            return await analyzeResume(userId, cv.id);
+          } catch (err) {
+            console.error(`Analysis attempt failed: ${err}`);
+            if (retries > 0) {
+              console.log(`Retrying analysis in 2 seconds... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              return analyzeWithRetry(retries - 1);
+            }
+            throw err;
+          }
+        };
+        
+        // Start the analysis with retry logic (in background)
+        analyzeWithRetry().catch(analysisErr => {
+          console.error("Background CV analysis failed after all retry attempts:", analysisErr);
+        });
+        
+        // 6. Trigger job matching (now that CV data is available)
+        console.log("Starting job matching for the uploaded CV...");
+        const jobMatchWithRetry = async (retries = 2) => {
+          try {
+            console.log(`Attempting job matching (attempt ${3 - retries}/3)...`);
+            return await generateJobMatches(cv.id);
+          } catch (err) {
+            console.error(`Job matching attempt failed: ${err}`);
+            if (retries > 0) {
+              console.log(`Retrying job matching in 2 seconds... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              return jobMatchWithRetry(retries - 1);
+            }
+            throw err;
+          }
+        };
+        
+        // Run job matching (in background)
+        jobMatchWithRetry().then(matchResult => {
+          if (matchResult.success) {
+            console.log(`Job matching completed successfully: ${matchResult.data?.matchesCreated || 0} matches created, ${matchResult.data?.matchesUpdated || 0} matches updated.`);
+          } else {
+            console.error(`Job matching failed: ${matchResult.error}`);
+          }
+        }).catch(matchErr => {
+          console.error("Background job matching failed after all retry attempts:", matchErr);
+        });
+          
+      } catch (analysisError) {
+        console.error("Error starting resume analysis:", analysisError);
+      }
+    } catch (processingError) {
+      console.error("Error in synchronous CV processing:", processingError);
+    }
+    
+    console.log("CV parsing completed, detailed analysis and job matching will continue in background");
     return { success: true, data: cv };
   } catch (error) {
     console.error("Error parsing CV:", error);
@@ -577,5 +617,70 @@ export async function uploadAndParseCV(
       success: false, 
       error: error instanceof Error ? error.message : "Failed to parse CV" 
     };
+  }
+}
+
+// Helper function to ensure student profile exists
+async function ensureStudentProfileExists(userId: string): Promise<void> {
+  try {
+    console.log("Checking if student profile exists for user:", userId);
+    
+    // Get user profile info
+    const { data: userProfile, error: userProfileError } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", userId)
+      .single();
+      
+    if (userProfileError || !userProfile) {
+      throw new Error("Failed to get user profile");
+    }
+    
+    // Check if student profile exists with this ID
+    const { data: existingProfile, error: checkError } = await supabase
+      .from("student_profiles")
+      .select("id")
+      .eq("id", userId)
+      .single();
+      
+    if (!checkError && existingProfile) {
+      console.log("Student profile already exists:", existingProfile.id);
+      return;
+    }
+    
+    // Also check by school email
+    const { data: emailProfile, error: emailError } = await supabase
+      .from("student_profiles")
+      .select("id")
+      .eq("school_email", userProfile.email)
+      .single();
+      
+    if (!emailError && emailProfile) {
+      console.log("Student profile found by email:", emailProfile.id);
+      return;
+    }
+    
+    // If no profile exists, create one
+    console.log("Creating new student profile for user:", userId);
+    const { data: newProfile, error: createError } = await supabase
+      .from("student_profiles")
+      .insert([{
+        id: userId, // Use user_id as the student profile id
+        school_email: userProfile.email,
+        university: "University", // Default values
+        course: "Course",
+        year_level: 1
+      }])
+      .select()
+      .single();
+      
+    if (createError) {
+      throw new Error(`Failed to create student profile: ${createError.message}`);
+    }
+    
+    console.log("New student profile created successfully:", newProfile.id);
+  } catch (error) {
+    console.error("Error ensuring student profile exists:", error);
+    throw error;
   }
 } 

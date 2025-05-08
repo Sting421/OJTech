@@ -33,17 +33,17 @@ const defaultProps: HeroHeaderProps = {
   secondaryButtonText: 'Upload Resume',
   secondaryButtonUrl: '/profile',
   imageSrc: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2070&auto=format&fit=crop',
-  // Dark theme colors with increasing opacity - no blue
-  waveColor1: 'rgba(30, 30, 30, 0.1)',
-  waveColor2: 'rgba(35, 35, 35, 0.13)',
-  waveColor3: 'rgba(40, 40, 40, 0.16)',
-  waveColor4: 'rgba(45, 45, 45, 0.19)',
-  waveColor5: 'rgba(50, 50, 50, 0.22)',
-  waveColor6: 'rgba(55, 55, 55, 0.25)',
-  waveColor7: 'rgba(60, 60, 60, 0.28)',
-  waveColor8: 'rgba(65, 65, 65, 0.31)',
-  waveOpacityBase: 0.1,
-  waveOpacityIncrement: 0.03,
+  // Pure black and gray theme colors with increasing opacity
+  waveColor1: 'rgba(30, 30, 30, 0.2)',
+  waveColor2: 'rgba(35, 35, 35, 0.25)',
+  waveColor3: 'rgba(40, 40, 40, 0.3)',
+  waveColor4: 'rgba(45, 45, 45, 0.35)',
+  waveColor5: 'rgba(50, 50, 50, 0.4)',
+  waveColor6: 'rgba(55, 55, 55, 0.45)',
+  waveColor7: 'rgba(60, 60, 60, 0.5)',
+  waveColor8: 'rgba(65, 65, 65, 0.55)',
+  waveOpacityBase: 0.2,
+  waveOpacityIncrement: 0.05,
   waveAmplitude: 40,
   waveSpeedMultiplier: 0.005,
 };
@@ -86,7 +86,7 @@ export const HeroHeader = ({
       ctx.clearRect(0, 0, width, height);
 
       // dark base - pure black
-      ctx.fillStyle = '#010915';
+      ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, width, height);
 
       // flowing waves
@@ -107,7 +107,7 @@ export const HeroHeader = ({
           const y = height / 2 + Math.sin((x + time + i * 100) * waveSpeedMultiplier!) * waveAmplitude! + i * 20;
           ctx.lineTo(x, y);
         }
-        ctx.strokeStyle = waveColors[i] || `rgba(50, 50, 50, ${opacity})`;
+        ctx.strokeStyle = waveColors[i] || `rgba(40, 40, 40, ${opacity})`;
         ctx.lineWidth = 1.4;
         ctx.stroke();
       }
@@ -155,7 +155,7 @@ export const HeroHeader = ({
   };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#010915] text-white">
+    <div className="relative w-full h-screen overflow-hidden bg-black text-white">
       <canvas
         ref={canvasRef}
         className="absolute top-0 left-0 w-full h-full z-0"
@@ -164,7 +164,7 @@ export const HeroHeader = ({
       <div className="relative z-10 flex items-center justify-between max-w-7xl mx-auto px-6 h-full">
         <div className="max-w-xl">
           <h1
-            className="text-5xl font-bold leading-tight bg-gradient-to-r from-gray-200 via-white to-gray-300 text-transparent bg-clip-text animate-fade-in-up"
+            className="text-5xl font-bold leading-tight bg-gradient-to-r from-gray-500 via-gray-300 to-gray-400 text-transparent bg-clip-text animate-fade-in-up"
             dangerouslySetInnerHTML={{ __html: title! }}
           />
           <p className="mt-6 text-lg text-gray-300 animate-fade-in-up delay-200">
@@ -175,7 +175,7 @@ export const HeroHeader = ({
               <Button 
                 variant="default" 
                 onClick={handlePrimaryClick}
-                className="bg-white text-black hover:bg-gray-200"
+                className="bg-gray-200 text-black hover:bg-gray-300"
               >
                 {primaryButtonText}
               </Button>
@@ -184,7 +184,7 @@ export const HeroHeader = ({
               <Button 
                 variant="outline" 
                 onClick={handleSecondaryClick}
-                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+                className="border-gray-700 text-gray-300 hover:bg-gray-900"
               >
                 {secondaryButtonText}
               </Button>
@@ -194,7 +194,7 @@ export const HeroHeader = ({
 
         <div className="hidden md:block max-w-sm">
           <div
-            className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-3xl p-4 transform-gpu transition-transform duration-500 -rotate-6 shadow-lg"
+            className="backdrop-blur-sm bg-black/30 border border-gray-800 rounded-3xl p-4 transform-gpu transition-transform duration-500 -rotate-6 shadow-lg"
           >
             <img
               src={imageSrc}

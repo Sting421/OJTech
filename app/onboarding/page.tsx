@@ -288,6 +288,8 @@ export default function OnboardingPage() {
   };
 
   const handleComplete = () => {
+    console.log("Completing onboarding and redirecting to home page");
+    // Redirect to home page after completion
     router.push("/");
   };
 
