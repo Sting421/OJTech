@@ -4,7 +4,12 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { supabase } from "@/lib/supabase";
 import { ApiResponse } from "@/lib/types/database";
-import { Job, CreateJobInput, UpdateJobInput, JobWithEmployer } from "@/lib/types/employer";
+import {
+  Job,
+  CreateJobInput,
+  UpdateJobInput,
+  JobWithEmployer,
+} from "@/lib/types/employer";
 import { triggerMatchingForNewJob } from "./job-matching"; // Added import
 
 // Helper function to safely parse JSON
@@ -24,7 +29,9 @@ interface JobWithEmployerProfile {
 }
 
 // Type guard to check if employer profile exists
-function hasEmployerProfile(job: JobWithEmployerProfile): job is JobWithEmployerProfile & { employer: { profile_id: string } } {
+function hasEmployerProfile(
+  job: JobWithEmployerProfile
+): job is JobWithEmployerProfile & { employer: { profile_id: string } } {
   return job.employer !== null;
 }
 
@@ -36,7 +43,9 @@ export async function createJob(
 ): Promise<ApiResponse<Job>> {
   try {
     const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     console.log({ user });
 
     if (!user) {
@@ -51,9 +60,12 @@ export async function createJob(
       .single();
 
     if (profileError) throw profileError;
-    
+
     if (profile.role !== "employer") {
-      return { success: false, error: "Only employers can create job postings" };
+      return {
+        success: false,
+        error: "Only employers can create job postings",
+      };
     }
 
     // Get employer details
@@ -65,7 +77,11 @@ export async function createJob(
 
     if (employerError) {
       if (employerError.code === "PGRST116") {
-        return { success: false, error: "Employer profile not found. Please complete your profile first." };
+        return {
+          success: false,
+          error:
+            "Employer profile not found. Please complete your profile first.",
+        };
       }
       throw employerError;
     }
@@ -73,16 +89,20 @@ export async function createJob(
     // Create job posting with company information
     const { data: job, error } = await supabaseClient
       .from("jobs")
-      .insert([{
-        ...data,
-        employer_id: user.id, // References profiles(id)
-        // Use company_name from form data instead of employer.name
-        company_logo_url: employer.company_logo_url || null,
-        required_skills: data.required_skills || null, // Already JSONB
-        preferred_skills: data.preferred_skills || null, // Already JSONB
-        salary_range: data.salary_range ? `${data.salary_range.min}-${data.salary_range.max}` : null,
-        status: data.status || "open"
-      }])
+      .insert([
+        {
+          ...data,
+          employer_id: user.id, // References profiles(id)
+          // Use company_name from form data instead of employer.name
+          company_logo_url: employer.company_logo_url || null,
+          required_skills: data.required_skills || null, // Already JSONB
+          preferred_skills: data.preferred_skills || null, // Already JSONB
+          salary_range: data.salary_range
+            ? `${data.salary_range.min}-${data.salary_range.max}`
+            : null,
+          status: data.status || "open",
+        },
+      ])
       .select()
       .single();
 
@@ -91,23 +111,31 @@ export async function createJob(
     // Trigger job matching for the new job (asynchronous)
     if (job && job.id) {
       console.log(`[JOB] New job created: ${job.id}. Triggering matching.`);
-      triggerMatchingForNewJob(job.id).then(matchResult => {
-        if (matchResult.success) {
-          console.log(`[JOB] Matching triggered for job ${job.id}: ${matchResult.data?.matchesCreated} created, ${matchResult.data?.matchesUpdated} updated.`);
-        } else {
-          console.error(`[JOB] Failed to trigger matching for job ${job.id}:`, matchResult.error);
-        }
-      }).catch(err => 
-        console.error("[JOB] Error during async job matching trigger:", err)
-      );
+      triggerMatchingForNewJob(job.id)
+        .then((matchResult) => {
+          if (matchResult.success) {
+            console.log(
+              `[JOB] Matching triggered for job ${job.id}: ${matchResult.data?.matchesCreated} created, ${matchResult.data?.matchesUpdated} updated.`
+            );
+          } else {
+            console.error(
+              `[JOB] Failed to trigger matching for job ${job.id}:`,
+              matchResult.error
+            );
+          }
+        })
+        .catch((err) =>
+          console.error("[JOB] Error during async job matching trigger:", err)
+        );
     }
 
     return { success: true, data: job };
   } catch (error) {
     console.error("[JOB] Error creating job posting:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to create job posting" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to create job posting",
     };
   }
 }
@@ -121,7 +149,9 @@ export async function updateJob(
 ): Promise<ApiResponse<Job>> {
   try {
     const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     console.log({ user });
 
     if (!user) {
@@ -137,7 +167,8 @@ export async function updateJob(
       .single();
 
     if (jobError) {
-      if (jobError.code === "PGRST116") { // Record not found
+      if (jobError.code === "PGRST116") {
+        // Record not found
         return { success: false, error: "Job posting not found" };
       }
       throw jobError;
@@ -151,27 +182,34 @@ export async function updateJob(
       .single();
 
     if (profileError) throw profileError;
-    
+
     // Direct ownership check without using the join
     const isOwner = job.employer_id === user.id;
     const isAdmin = profile.role === "admin";
-    
+
     if (!isAdmin && !isOwner) {
-      return { success: false, error: "You don't have permission to update this job posting" };
+      return {
+        success: false,
+        error: "You don't have permission to update this job posting",
+      };
     }
 
     // Prepare update data
     const updateData: any = { ...data };
-    
+
     // Handle JSONB fields - ensure they're arrays
     if (data.required_skills) {
-      updateData.required_skills = Array.isArray(data.required_skills) ? data.required_skills : [];
+      updateData.required_skills = Array.isArray(data.required_skills)
+        ? data.required_skills
+        : [];
     }
-    
+
     if (data.preferred_skills) {
-      updateData.preferred_skills = Array.isArray(data.preferred_skills) ? data.preferred_skills : null;
+      updateData.preferred_skills = Array.isArray(data.preferred_skills)
+        ? data.preferred_skills
+        : null;
     }
-    
+
     if (data.salary_range) {
       updateData.salary_range = `${data.salary_range.min}-${data.salary_range.max}`; // VARCHAR
     }
@@ -195,23 +233,31 @@ export async function updateJob(
     // Trigger job matching for the updated job (asynchronous)
     if (updatedJob && updatedJob.id) {
       console.log(`[JOB] Job updated: ${updatedJob.id}. Triggering matching.`);
-      triggerMatchingForNewJob(updatedJob.id).then(matchResult => {
-        if (matchResult.success) {
-          console.log(`[JOB] Matching triggered for job ${updatedJob.id}: ${matchResult.data?.matchesCreated} created, ${matchResult.data?.matchesUpdated} updated.`);
-        } else {
-          console.error(`[JOB] Failed to trigger matching for job ${updatedJob.id}:`, matchResult.error);
-        }
-      }).catch(err => 
-        console.error("[JOB] Error during async job matching trigger:", err)
-      );
+      triggerMatchingForNewJob(updatedJob.id)
+        .then((matchResult) => {
+          if (matchResult.success) {
+            console.log(
+              `[JOB] Matching triggered for job ${updatedJob.id}: ${matchResult.data?.matchesCreated} created, ${matchResult.data?.matchesUpdated} updated.`
+            );
+          } else {
+            console.error(
+              `[JOB] Failed to trigger matching for job ${updatedJob.id}:`,
+              matchResult.error
+            );
+          }
+        })
+        .catch((err) =>
+          console.error("[JOB] Error during async job matching trigger:", err)
+        );
     }
 
     return { success: true, data: updatedJob };
   } catch (error) {
     console.error("[JOB] Error updating job posting:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to update job posting" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to update job posting",
     };
   }
 }
@@ -222,7 +268,9 @@ export async function updateJob(
 export async function deleteJob(jobId: string): Promise<ApiResponse<null>> {
   try {
     const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     console.log({ user });
 
     if (!user) {
@@ -238,7 +286,8 @@ export async function deleteJob(jobId: string): Promise<ApiResponse<null>> {
       .single();
 
     if (jobError) {
-      if (jobError.code === "PGRST116") { // Record not found
+      if (jobError.code === "PGRST116") {
+        // Record not found
         return { success: false, error: "Job posting not found" };
       }
       throw jobError;
@@ -252,13 +301,16 @@ export async function deleteJob(jobId: string): Promise<ApiResponse<null>> {
       .single();
 
     if (profileError) throw profileError;
-    
+
     // Direct ownership check
     const isOwner = job.employer_id === user.id;
     const isAdmin = profile.role === "admin";
-    
+
     if (!isAdmin && !isOwner) {
-      return { success: false, error: "You don't have permission to delete this job posting" };
+      return {
+        success: false,
+        error: "You don't have permission to delete this job posting",
+      };
     }
 
     // Delete job posting
@@ -275,9 +327,10 @@ export async function deleteJob(jobId: string): Promise<ApiResponse<null>> {
     return { success: true, data: null };
   } catch (error) {
     console.error("[JOB] Error deleting job posting:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to delete job posting" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to delete job posting",
     };
   }
 }
@@ -285,10 +338,14 @@ export async function deleteJob(jobId: string): Promise<ApiResponse<null>> {
 /**
  * Get a job posting by ID
  */
-export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmployer>> {
+export async function getJobById(
+  jobId: string
+): Promise<ApiResponse<JobWithEmployer>> {
   try {
     const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     console.log({ user });
 
     if (!user) {
@@ -297,17 +354,20 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
 
     const { data: job, error } = await supabaseClient
       .from("jobs")
-      .select(`
+      .select(
+        `
         *,
         employer:employer_id (
           *
         )
-      `)
+      `
+      )
       .eq("id", jobId)
       .single();
 
     if (error) {
-      if (error.code === "PGRST116") { // Record not found
+      if (error.code === "PGRST116") {
+        // Record not found
         return { success: false, error: "Job posting not found" };
       }
       throw error;
@@ -317,7 +377,7 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
     console.log("[JOB] Raw job data:", {
       required_skills: job.required_skills,
       preferred_skills: job.preferred_skills,
-      salary_range: job.salary_range
+      salary_range: job.salary_range,
     });
 
     // Process required_skills correctly
@@ -325,7 +385,7 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
     if (Array.isArray(job.required_skills)) {
       // If it's already an array, use it as is
       requiredSkills = job.required_skills;
-    } else if (typeof job.required_skills === 'string') {
+    } else if (typeof job.required_skills === "string") {
       // If it's a string, try to parse it
       try {
         requiredSkills = JSON.parse(job.required_skills);
@@ -333,7 +393,7 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
         console.error("[JOB] Error parsing required_skills:", e);
         requiredSkills = [];
       }
-    } else if (job.required_skills && typeof job.required_skills === 'object') {
+    } else if (job.required_skills && typeof job.required_skills === "object") {
       // If it's already an object but not an array (like a JSONB object), convert appropriately
       requiredSkills = Object.values(job.required_skills);
     }
@@ -342,14 +402,17 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
     let preferredSkills = [];
     if (Array.isArray(job.preferred_skills)) {
       preferredSkills = job.preferred_skills;
-    } else if (typeof job.preferred_skills === 'string') {
+    } else if (typeof job.preferred_skills === "string") {
       try {
         preferredSkills = JSON.parse(job.preferred_skills);
       } catch (e) {
         console.error("[JOB] Error parsing preferred_skills:", e);
         preferredSkills = [];
       }
-    } else if (job.preferred_skills && typeof job.preferred_skills === 'object') {
+    } else if (
+      job.preferred_skills &&
+      typeof job.preferred_skills === "object"
+    ) {
       preferredSkills = Object.values(job.preferred_skills);
     }
 
@@ -358,25 +421,28 @@ export async function getJobById(jobId: string): Promise<ApiResponse<JobWithEmpl
       ...job,
       required_skills: requiredSkills,
       preferred_skills: preferredSkills,
-      salary_range: job.salary_range ? (() => {
-        const [min, max] = job.salary_range.split('-');
-        return { min: parseInt(min), max: parseInt(max) };
-      })() : null
+      salary_range: job.salary_range
+        ? (() => {
+            const [min, max] = job.salary_range.split("-");
+            return { min: parseInt(min), max: parseInt(max) };
+          })()
+        : null,
     };
 
     // Log parsed job data for debugging
     console.log("[JOB] Parsed job data:", {
       required_skills: parsedJob.required_skills,
       preferred_skills: parsedJob.preferred_skills,
-      salary_range: parsedJob.salary_range
+      salary_range: parsedJob.salary_range,
     });
 
     return { success: true, data: parsedJob };
   } catch (error) {
     console.error("[JOB] Error getting job posting:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to fetch job posting" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to fetch job posting",
     };
   }
 }
@@ -391,7 +457,9 @@ export async function getJobsByEmployer(
 ): Promise<ApiResponse<{ jobs: Job[]; total: number }>> {
   try {
     const supabaseClient = createServerComponentClient({ cookies });
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser();
     console.log({ user });
 
     if (!user) {
@@ -406,7 +474,7 @@ export async function getJobsByEmployer(
       .single();
 
     if (profileError) throw profileError;
-    
+
     if (profile.role !== "employer") {
       return { success: false, error: "User is not an employer" };
     }
@@ -419,7 +487,8 @@ export async function getJobsByEmployer(
       .single();
 
     if (employerError) {
-      if (employerError.code === "PGRST116") { // Record not found
+      if (employerError.code === "PGRST116") {
+        // Record not found
         return { success: false, error: "Employer profile not found" };
       }
       throw employerError;
@@ -429,11 +498,11 @@ export async function getJobsByEmployer(
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Build query
+    // Build query to check for both employer.id and user.id
     let query = supabaseClient
       .from("jobs")
       .select("*", { count: "exact" })
-      .eq("employer_id", employer.id);
+      .or(`employer_id.eq.${employer.id},employer_id.eq.${user.id}`);
 
     // Apply status filter if provided
     if (status) {
@@ -441,37 +510,59 @@ export async function getJobsByEmployer(
     }
 
     // Apply pagination and ordering
-    query = query
-      .range(from, to)
-      .order("created_at", { ascending: false });
+    query = query.range(from, to).order("created_at", { ascending: false });
 
     const { data: jobs, error, count } = await query;
 
     if (error) throw error;
 
+    // Get application counts for all jobs - one by one since group by isn't supported
+    const jobIds = (jobs || []).map((job) => job.id);
+    let applicationCounts: Record<string, number> = {};
+
+    if (jobIds.length > 0) {
+      // Process each job ID separately
+      await Promise.all(
+        jobIds.map(async (jobId) => {
+          const { count, error } = await supabaseClient
+            .from("job_applications")
+            .select("*", { count: "exact", head: true })
+            .eq("job_id", jobId);
+
+          if (!error && count !== null) {
+            applicationCounts[jobId] = count;
+          }
+        })
+      );
+    }
+
     // Parse jobs data with consistent format
-    const parsedJobs = (jobs || []).map(job => ({
+    const parsedJobs = (jobs || []).map((job) => ({
       ...job,
       required_skills: tryParseJSON(job.required_skills) || [],
       preferred_skills: tryParseJSON(job.preferred_skills) || null,
-      salary_range: job.salary_range ? (() => {
-        const [min, max] = job.salary_range.split('-');
-        return { min: parseInt(min), max: parseInt(max) };
-      })() : null
+      salary_range: job.salary_range
+        ? (() => {
+            const [min, max] = job.salary_range.split("-");
+            return { min: parseInt(min), max: parseInt(max) };
+          })()
+        : null,
+      application_count: applicationCounts[job.id] || 0,
     }));
 
-    return { 
-      success: true, 
-      data: { 
-        jobs: parsedJobs, 
-        total: count || 0 
-      } 
+    return {
+      success: true,
+      data: {
+        jobs: parsedJobs,
+        total: count || 0,
+      },
     };
   } catch (error) {
     console.error("[JOB] Error getting employer job postings:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to fetch job postings" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to fetch job postings",
     };
   }
 }
@@ -497,14 +588,15 @@ export async function getAllJobs(
     const to = from + limit - 1;
 
     // Build query
-    let query = supabaseClient
-      .from("jobs")
-      .select(`
+    let query = supabaseClient.from("jobs").select(
+      `
         *,
         employer:employer_id (
           *
         )
-      `, { count: "exact" });
+      `,
+      { count: "exact" }
+    );
 
     // Apply filters if provided
     if (filters?.status) {
@@ -523,41 +615,44 @@ export async function getAllJobs(
     }
 
     if (filters?.search) {
-      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      query = query.or(
+        `title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+      );
     }
 
     // Apply pagination and ordering
-    query = query
-      .range(from, to)
-      .order("created_at", { ascending: false });
+    query = query.range(from, to).order("created_at", { ascending: false });
 
     const { data: jobs, error, count } = await query;
 
     if (error) throw error;
 
     // Parse jobs data with consistent format
-    const parsedJobs = (jobs || []).map(job => ({
+    const parsedJobs = (jobs || []).map((job) => ({
       ...job,
       required_skills: tryParseJSON(job.required_skills) || [],
       preferred_skills: tryParseJSON(job.preferred_skills) || null,
-      salary_range: job.salary_range ? (() => {
-        const [min, max] = job.salary_range.split('-');
-        return { min: parseInt(min), max: parseInt(max) };
-      })() : null
+      salary_range: job.salary_range
+        ? (() => {
+            const [min, max] = job.salary_range.split("-");
+            return { min: parseInt(min), max: parseInt(max) };
+          })()
+        : null,
     }));
 
-    return { 
-      success: true, 
-      data: { 
-        jobs: parsedJobs, 
-        total: count || 0 
-      } 
+    return {
+      success: true,
+      data: {
+        jobs: parsedJobs,
+        total: count || 0,
+      },
     };
   } catch (error) {
     console.error("[JOB] Error getting all job postings:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to fetch job postings" 
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to fetch job postings",
     };
   }
 }
