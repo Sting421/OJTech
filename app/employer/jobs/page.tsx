@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getEmployerJobs } from "@/lib/actions/job-actions";
+import { getJobsByEmployer, deleteJob } from "@/lib/actions/job";
 import { ArrowRightIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,7 +15,10 @@ import { Job } from "@/lib/types/employer";
 const PAGE_SIZE = 9;
 
 export default function EmployerJobsPage() {
-  const [jobsData, setJobsData] = useState<{ jobs: Job[]; total: number }>({ jobs: [], total: 0 });
+  const [jobsData, setJobsData] = useState<{ jobs: Job[]; total: number }>({
+    jobs: [],
+    total: 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -23,48 +26,57 @@ export default function EmployerJobsPage() {
   const { toast } = useToast();
   const router = useRouter();
 
-  const fetchJobs = useCallback(async (page: number, status: string | null, search: string) => {
-    setIsLoading(true);
-    try {
-      // Pass status and search to getEmployerJobs for server-side filtering
-      const result = await getEmployerJobs(page, PAGE_SIZE, status, search);
-      if (result.success && result.data) {
-        setJobsData({ jobs: result.data.jobs || [], total: result.data.total || 0 });
-      } else {
-        console.error("Error fetching jobs:", result.error || "Unknown error");
+  const fetchJobs = useCallback(
+    async (page: number, status: string | null, search: string) => {
+      setIsLoading(true);
+      try {
+        // Use getJobsByEmployer instead of getEmployerJobs
+        const result = await getJobsByEmployer(page, 9, status || undefined);
+        if (result.success && result.data) {
+          setJobsData({
+            jobs: result.data.jobs || [],
+            total: result.data.total || 0,
+          });
+        } else {
+          console.error(
+            "Error fetching jobs:",
+            result.error || "Unknown error"
+          );
+          toast({
+            title: "Error",
+            description: "Failed to fetch job listings",
+            variant: "destructive",
+          });
+          setJobsData({ jobs: [], total: 0 });
+        }
+      } catch (error) {
+        console.error("Failed to fetch jobs:", error);
         toast({
           title: "Error",
           description: "Failed to fetch job listings",
           variant: "destructive",
         });
         setJobsData({ jobs: [], total: 0 });
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to fetch jobs:", error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch job listings",
-        variant: "destructive",
-      });
-      setJobsData({ jobs: [], total: 0 });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
+    },
+    [toast]
+  );
 
   useEffect(() => {
     fetchJobs(currentPage, selectedStatus, searchQuery);
   }, [fetchJobs, currentPage, selectedStatus, searchQuery]);
 
   // Filter jobs based on status and search query
-  const filteredJobs = jobsData.jobs.filter(job => {
-    const statusMatch = selectedStatus ? job.status.toLowerCase() === selectedStatus.toLowerCase() : true;
-    const searchMatch = searchQuery 
-      ? job.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredJobs = jobsData.jobs.filter((job) => {
+    const searchMatch = searchQuery
+      ? job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (job.company_name && job.company_name.toLowerCase().includes(searchQuery.toLowerCase()))
+        (job.company_name &&
+          job.company_name.toLowerCase().includes(searchQuery.toLowerCase()))
       : true;
-    return statusMatch && searchMatch;
+    return searchMatch;
   });
 
   // Calculate filtered total for pagination
@@ -86,15 +98,15 @@ export default function EmployerJobsPage() {
 
   // Calculate counts for all jobs and different statuses
   const allFetchedJobs = jobsData.jobs;
-  const jobCounts = allFetchedJobs.reduce(
-    (acc, job) => {
-      const status = job.status.toLowerCase();
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
+  const jobCounts = allFetchedJobs.reduce((acc, job) => {
+    const status = job.status.toLowerCase();
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  const totalApplications = allFetchedJobs.reduce(
+    (sum, job) => sum + (job.application_count || 0),
+    0
   );
-  const totalApplications = allFetchedJobs.reduce((sum, job) => sum + (job.application_count || 0), 0);
 
   return (
     <div className="py-6">
@@ -133,12 +145,12 @@ export default function EmployerJobsPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Applications</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total Applications
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {totalApplications}
-            </div>
+            <div className="text-2xl font-bold">{totalApplications}</div>
             <p className="text-xs text-muted-foreground mt-1">
               Total applications received
             </p>

@@ -3,13 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardFooter, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,25 +28,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { 
-  PlusCircle, 
-  Search, 
-  MoreVertical, 
-  Eye, 
-  Edit, 
-  Trash2, 
+import {
+  PlusCircle,
+  Search,
+  MoreVertical,
+  Eye,
+  Edit,
+  Trash2,
   AlertCircle,
   CheckCircle2,
   Clock,
-  XCircle 
+  XCircle,
 } from "lucide-react";
-import { 
-  PaginationContent, 
-  PaginationEllipsis, 
-  PaginationItem, 
-  PaginationLink, 
-  PaginationNext, 
-  PaginationPrevious 
+import {
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
 } from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import { deleteJob } from "@/lib/actions/job";
@@ -76,7 +76,7 @@ export default function JobList({
   onSearch,
   isLoading,
   selectedStatus,
-  searchQuery
+  searchQuery,
 }: JobListProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -103,7 +103,8 @@ export default function JobList({
       console.error("Error deleting job:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete job",
+        description:
+          error instanceof Error ? error.message : "Failed to delete job",
         variant: "destructive",
       });
     } finally {
@@ -135,7 +136,9 @@ export default function JobList({
       <div className="flex flex-col sm:flex-row gap-4">
         <Select
           value={selectedStatus || "all"}
-          onValueChange={(value) => onStatusFilter(value === "all" ? null : value)}
+          onValueChange={(value) =>
+            onStatusFilter(value === "all" ? null : value)
+          }
         >
           <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Filter by status" />
@@ -172,12 +175,12 @@ export default function JobList({
       {jobs.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
           {jobs.map((job) => (
-            <EmployerJobCard 
-              key={job.id} 
-              job={job} 
+            <EmployerJobCard
+              key={job.id}
+              job={job}
               onViewApplications={handleViewApplications}
               onEditJob={handleEditJob}
-              onDeleteJob={handleDeleteJob} 
+              onDeleteJob={handleDeleteJob}
               isDeleting={deletingJobId === job.id}
             />
           ))}
@@ -209,22 +212,24 @@ export default function JobList({
         <div className="flex justify-center mt-6">
           <PaginationContent>
             <PaginationItem>
-              <PaginationPrevious 
-                href="#" 
+              <PaginationPrevious
+                href="#"
                 size="default"
                 onClick={(e) => {
                   e.preventDefault();
                   if (currentPage > 1) onPageChange(currentPage - 1);
                 }}
-                className={currentPage <= 1 ? "pointer-events-none opacity-50" : ""}
+                className={
+                  currentPage <= 1 ? "pointer-events-none opacity-50" : ""
+                }
               />
             </PaginationItem>
-            
+
             {/* First page */}
             {currentPage > 2 && (
               <PaginationItem>
-                <PaginationLink 
-                  href="#" 
+                <PaginationLink
+                  href="#"
                   size="default"
                   onClick={(e) => {
                     e.preventDefault();
@@ -235,19 +240,19 @@ export default function JobList({
                 </PaginationLink>
               </PaginationItem>
             )}
-            
+
             {/* Ellipsis */}
             {currentPage > 3 && (
               <PaginationItem>
                 <PaginationEllipsis />
               </PaginationItem>
             )}
-            
+
             {/* Previous page */}
             {currentPage > 1 && (
               <PaginationItem>
-                <PaginationLink 
-                  href="#" 
+                <PaginationLink
+                  href="#"
                   size="default"
                   onClick={(e) => {
                     e.preventDefault();
@@ -258,19 +263,19 @@ export default function JobList({
                 </PaginationLink>
               </PaginationItem>
             )}
-            
+
             {/* Current page */}
             <PaginationItem>
               <PaginationLink href="#" size="default" isActive>
                 {currentPage}
               </PaginationLink>
             </PaginationItem>
-            
+
             {/* Next page */}
             {currentPage < totalPages && (
               <PaginationItem>
-                <PaginationLink 
-                  href="#" 
+                <PaginationLink
+                  href="#"
                   size="default"
                   onClick={(e) => {
                     e.preventDefault();
@@ -281,19 +286,19 @@ export default function JobList({
                 </PaginationLink>
               </PaginationItem>
             )}
-            
+
             {/* Ellipsis */}
             {currentPage < totalPages - 2 && (
               <PaginationItem>
                 <PaginationEllipsis />
               </PaginationItem>
             )}
-            
+
             {/* Last page */}
             {currentPage < totalPages - 1 && (
               <PaginationItem>
-                <PaginationLink 
-                  href="#" 
+                <PaginationLink
+                  href="#"
                   size="default"
                   onClick={(e) => {
                     e.preventDefault();
@@ -304,16 +309,20 @@ export default function JobList({
                 </PaginationLink>
               </PaginationItem>
             )}
-            
+
             <PaginationItem>
-              <PaginationNext 
-                href="#" 
+              <PaginationNext
+                href="#"
                 size="default"
                 onClick={(e) => {
                   e.preventDefault();
                   if (currentPage < totalPages) onPageChange(currentPage + 1);
                 }}
-                className={currentPage >= totalPages ? "pointer-events-none opacity-50" : ""}
+                className={
+                  currentPage >= totalPages
+                    ? "pointer-events-none opacity-50"
+                    : ""
+                }
               />
             </PaginationItem>
           </PaginationContent>
@@ -321,4 +330,4 @@ export default function JobList({
       )}
     </div>
   );
-} 
+}
