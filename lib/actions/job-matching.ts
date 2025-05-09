@@ -150,7 +150,7 @@ export async function generateJobMatches(
 
     // 3. Generate match scores for each job
     console.log("[JOB-MATCHING] Calculating match scores for", jobs.length, "jobs");
-    const matchPromises = jobs.map(job => calculateMatchScore(cv.skills, job));
+    const matchPromises = jobs.map(job => calculateMatchScore(cv.skills, job, studentProfile));
     console.log("[JOB-MATCHING] Waiting for match calculations to complete");
     
     // Use Promise.allSettled to handle individual promise rejections gracefully
@@ -300,7 +300,7 @@ export async function triggerMatchingForNewJob(
       }
 
       const studentId = studentProfile.id;
-      const score = await calculateMatchScore(cv.skills, job);
+      const score = await calculateMatchScore(cv.skills, job, studentProfile);
       return {
         student_id: studentId,
         job_id: jobId,
@@ -357,7 +357,8 @@ async function calculateMatchScore(
     title: string;
     description: string;
     required_skills: any;
-  }
+  },
+  studentProfile?: any
 ): Promise<number> {
   console.log("[JOB-MATCHING] Calculating match score for job:", job.id, job.title);
   try {
@@ -373,6 +374,13 @@ async function calculateMatchScore(
       ? job.required_skills 
       : (job.required_skills?.skills || []);
 
+    // Extract academic background if available
+    const academicBackground = studentProfile?.academic_background || {
+      courses: [],
+      technical_skills: {},
+      soft_skills: {}
+    };
+
     console.log("[JOB-MATCHING] CV skills count:", cvSkills.length, "Job skills count:", jobSkills.length);
 
     // For simple cases without AI, use basic algorithm
@@ -381,10 +389,11 @@ async function calculateMatchScore(
       return calculateBasicMatchScore(cvSkills, jobSkills);
     }
 
-    // Create a simplified prompt for Gemini
-    console.log("[JOB-MATCHING] Creating prompt for Gemini");
+    // Create a comprehensive prompt for Gemini that includes academic background
+    console.log("[JOB-MATCHING] Creating prompt for Gemini with academic background");
     const prompt = `
-      Analyze this job and candidate match. Return ONLY a number from 0-100 representing how well they match.
+      Analyze this job and candidate match. Consider both their CV and academic background.
+      Return ONLY a number from 0-100 representing how well they match.
       
       JOB:
       Title: ${job.title}
@@ -392,10 +401,21 @@ async function calculateMatchScore(
       Required Skills: ${JSON.stringify(jobSkills)}
       
       CANDIDATE:
-      Skills: ${JSON.stringify(cvSkills)}
+      CV Skills: ${JSON.stringify(cvSkills)}
       Experience Summary: ${JSON.stringify(cvExperience.slice(0, 2))}
       
-      Calculate match score on skill alignment, relevant experience and how well the candidate meets requirements.
+      ACADEMIC BACKGROUND:
+      Courses: ${JSON.stringify(academicBackground.courses)}
+      Technical Skills from Courses: ${JSON.stringify(academicBackground.technical_skills)}
+      Soft Skills from Courses: ${JSON.stringify(academicBackground.soft_skills)}
+      
+      Consider the following in your scoring:
+      1. Direct skill matches from CV (highest weight)
+      2. Skills gained from relevant coursework
+      3. Soft skills developed through academic programs
+      4. Potential for skill application based on academic background
+      5. Overall alignment of academic preparation with job requirements
+      
       Return ONLY a number from 0-100.
     `;
 
@@ -414,7 +434,7 @@ async function calculateMatchScore(
       const result = await Promise.race([
         model.generateContent(prompt),
         timeoutPromise
-      ]) as any; // Type assertion needed due to race
+      ]) as any;
       
       console.log("[JOB-MATCHING] Received response from Gemini");
       const content = result.response.text();
@@ -433,23 +453,12 @@ async function calculateMatchScore(
       return calculateBasicMatchScore(cvSkills, jobSkills);
     } catch (aiError) {
       console.error("[JOB-MATCHING] Error calling Gemini API:", aiError);
-      // Check if it's an API key issue or timeout
-      const errorMessage = aiError.toString();
-      if (errorMessage.includes("API key")) {
-        console.error("[JOB-MATCHING] API key issue detected:", errorMessage);
-      } else if (errorMessage.includes("timed out")) {
-        console.error("[JOB-MATCHING] API call timed out after", GEMINI_TIMEOUT_MS, "ms");
-      }
       // Fallback to basic algorithm
       return calculateBasicMatchScore(cvSkills, jobSkills);
     }
   } catch (error) {
-    console.error("[JOB-MATCHING] Error in match score calculation:", error);
-    // Fallback to basic algorithm
-    return calculateBasicMatchScore(
-      cvData.skills || [], 
-      Array.isArray(job.required_skills) ? job.required_skills : []
-    );
+    console.error("[JOB-MATCHING] Error in calculateMatchScore:", error);
+    return calculateBasicMatchScore(cvData.skills || [], jobSkills);
   }
 }
 

@@ -52,10 +52,12 @@ export function Navbar() {
           
           {user && profile?.role && (
             <div className="flex space-x-6">
-              {/* Common navigation for all users */}
-              <Link href="/" className={pathname === "/" ? "font-medium" : "text-gray-400 hover:text-white"}>
-                Home
-              </Link>
+              {/* Common navigation for all non-student users */}
+              {profile.role !== "student" && (
+                <Link href="/" className={pathname === "/" ? "font-medium" : "text-gray-400 hover:text-white"}>
+                  Home
+                </Link>
+              )}
               
               {/* Student-specific navigation */}
               {profile.role === "student" && (

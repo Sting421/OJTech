@@ -4,7 +4,7 @@ import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/utils/date-utils"
 import { Progress } from "@/components/ui/progress"
-import { Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building, ChevronDown, ChevronUp, Mail } from "lucide-react"
+import { Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, Building, ChevronDown, ChevronUp, Mail, BarChart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 // Get the next step message based on application status
@@ -37,6 +37,14 @@ const getStatusColor = (status: string) => {
 
   return statusColors[status as keyof typeof statusColors] || 'bg-gray-400'
 }
+
+// Get the appropriate color class for match score
+const getMatchScoreColor = (score: number) => {
+  if (score >= 80) return 'progress-green progress-bg-green';
+  if (score >= 60) return 'progress-blue progress-bg-blue';
+  if (score >= 40) return 'progress-yellow progress-bg-yellow';
+  return 'progress-red progress-bg-red';
+};
 
 export interface ApplicationCardProps {
   application: {
@@ -100,6 +108,20 @@ export function ApplicationCard({
           <Badge className={`${getStatusColor(application.status)} text-white px-3 py-1 text-xs uppercase`}>
             {application.status}
           </Badge>
+        </div>
+        
+        {/* Match Score Section */}
+        <div className="mt-4 mb-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-2">
+              <BarChart className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Match Score</span>
+            </div>
+            <span className="text-sm font-semibold">{matchPercentage}%</span>
+          </div>
+          <div className={`h-2 rounded-full ${getMatchScoreColor(matchPercentage)}`}>
+            <Progress value={matchPercentage} className="h-full" />
+          </div>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">

@@ -273,7 +273,7 @@ export function ResumeTips({ initialData, autoLoad = true }: ResumeTipsProps) {
             <div>
               <h3 className="text-lg font-medium flex items-center mb-3">
                 <AlertCircle className="h-5 w-5 text-amber-500 mr-2" />
-                <span>Areas to Improve</span>
+                <span>Weaknesses</span>
               </h3>
               <div className="space-y-2">
                 {analysis.weaknesses.map((weakness, index) => (
@@ -413,7 +413,7 @@ export function ResumeTips({ initialData, autoLoad = true }: ResumeTipsProps) {
           <div>
             <h3 className="text-lg font-medium flex items-center mb-3">
               <AlertCircle className="h-5 w-5 text-amber-500 mr-2" />
-              <span>Areas to Improve</span>
+              <span>Weaknesses</span>
             </h3>
             <div className="space-y-2">
               {analysis.weaknesses.map((weakness, index) => (

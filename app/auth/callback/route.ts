@@ -1,7 +1,7 @@
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createUserProfile } from "@/lib/actions/auth-trigger";
+import { handleSocialLoginProfile } from "@/lib/actions/auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -24,21 +24,20 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${requestUrl.origin}/auth/login?error=Authentication%20failed`);
     }
 
-    // If we have a user, create a profile for them if one doesn't exist
+    // If we have a user, create or merge profile
     if (user) {
       console.log('User authenticated:', { id: user.id, email: user.email });
       try {
-        // Try to create a profile for the user
-        // This is needed in case the database trigger didn't work
+        // Handle social login profile creation or merging
         const fullName = user.user_metadata?.full_name || '';
-        console.log('Attempting to create profile with data:', {
+        console.log('Handling social login profile with data:', {
           id: user.id,
           email: user.email,
           fullName
         });
         
-        const result = await createUserProfile(user.id, user.email || '', fullName);
-        console.log('Profile creation result:', result);
+        const result = await handleSocialLoginProfile(user.id, user.email || '', fullName);
+        console.log('Profile handling result:', result);
         
         // Check user's role and profile status
         const { data: profileData } = await supabase

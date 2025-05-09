@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { StudentProfile } from "@/lib/types/student";
+import { ApiResponse } from "@/lib/types/database";
 
 export async function createStudentProfile(data: Omit<StudentProfile, "id" | "created_at" | "updated_at">) {
   try {
@@ -415,6 +416,141 @@ export async function populateStudentProfileFromCv(userId: string): Promise<{ su
     return { 
       success: false, 
       message: error instanceof Error ? error.message : "Failed to populate profile from CV" 
+    };
+  }
+}
+
+// Course to skills mapping
+const COURSE_SKILLS_MAP = {
+  // Programming courses
+  'CSIT121': ['Java', 'Programming Fundamentals', 'Object-Oriented Programming'],
+  'CSIT122': ['Python', 'Data Structures', 'Algorithms'],
+  'CSIT227': ['Advanced Programming', 'Software Development'],
+  'CSIT228': ['C++', 'Systems Programming'],
+  'CSIT221': ['Algorithm Design', 'Problem Solving'],
+  
+  // Web Development courses
+  'CSIT201': ['HTML', 'CSS', 'JavaScript', 'Web Development'],
+  'CSIT284': ['Web Frameworks', 'Full Stack Development'],
+  'CSIT104': ['Mobile Development', 'Responsive Design'],
+  
+  // Database courses
+  'CSIT226': ['SQL', 'Database Design', 'Data Management'],
+  'CSIT327': ['Advanced Database Systems', 'Data Modeling'],
+  
+  // Data Analysis
+  'IT365': ['Data Analysis', 'Statistical Analysis', 'Data Processing'],
+  
+  // Networking
+  'IT227': ['Network Setup', 'Network Troubleshooting'],
+  'IT228': ['Network Administration', 'Network Security'],
+  
+  // Systems Administration
+  'IT344': ['Server Management', 'System Administration', 'IT Infrastructure'],
+  
+  // Security
+  'CSIT385': ['Cybersecurity', 'Security Fundamentals'],
+  'IT386': ['Network Security', 'Security Operations'],
+  
+  // Systems Integration
+  'IT342': ['Systems Integration', 'Enterprise Architecture', 'IT Architecture']
+};
+
+// Soft skills by course
+const COURSE_SOFT_SKILLS = {
+  'ENGL031': ['Written Communication', 'Verbal Communication', 'Professional Communication'],
+  'IT317': ['Project Management', 'Team Leadership', 'Planning', 'Execution'],
+  'CSIT213': ['Professional Ethics', 'Social Responsibility'],
+  'PHILO031': ['Critical Thinking', 'Ethical Decision Making'],
+  'CSIT212': ['Analytical Thinking', 'Problem Solving'],
+  'CSIT112': ['Logical Reasoning', 'Mathematical Thinking'],
+  'CSIT321': ['Team Collaboration', 'Project Coordination']
+};
+
+/**
+ * Updates a student's academic background based on their courses
+ */
+export async function updateStudentAcademicBackground(
+  userId: string,
+  courses: string[]
+): Promise<ApiResponse<{ message: string }>> {
+  console.log("[STUDENT-PROFILE] Updating academic background for user:", userId);
+  try {
+    // Validate courses
+    const validCourses = courses.filter(course => 
+      COURSE_SKILLS_MAP[course] || COURSE_SOFT_SKILLS[course]
+    );
+
+    if (validCourses.length === 0) {
+      return {
+        success: false,
+        error: "No valid courses provided"
+      };
+    }
+
+    // Collect technical skills from courses
+    const technicalSkills = new Set<string>();
+    validCourses.forEach(course => {
+      if (COURSE_SKILLS_MAP[course]) {
+        COURSE_SKILLS_MAP[course].forEach(skill => technicalSkills.add(skill));
+      }
+    });
+
+    // Collect soft skills from courses
+    const softSkills = new Set<string>();
+    validCourses.forEach(course => {
+      if (COURSE_SOFT_SKILLS[course]) {
+        COURSE_SOFT_SKILLS[course].forEach(skill => softSkills.add(skill));
+      }
+    });
+
+    // Update student profile
+    const { error } = await supabase
+      .from('student_profiles')
+      .update({
+        academic_background: {
+          courses: validCourses,
+          technical_skills: Array.from(technicalSkills),
+          soft_skills: Array.from(softSkills)
+        }
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.error("[STUDENT-PROFILE] Error updating academic background:", error);
+      return {
+        success: false,
+        error: "Failed to update academic background"
+      };
+    }
+
+    // Trigger job matching recalculation
+    const { data: cv } = await supabase
+      .from('cvs')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .single();
+
+    if (cv) {
+      // Update CV to trigger job matching recalculation
+      await supabase
+        .from('cvs')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', cv.id);
+    }
+
+    return {
+      success: true,
+      data: {
+        message: "Academic background updated successfully"
+      }
+    };
+  } catch (error) {
+    console.error("[STUDENT-PROFILE] Error in updateStudentAcademicBackground:", error);
+    return {
+      success: false,
+      error: "Failed to update academic background"
     };
   }
 }

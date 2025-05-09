@@ -416,22 +416,39 @@ export async function applyForJob(jobId: string): Promise<ApiResponse<{ letterGe
     
     // 7. Create job application record
     console.log("[OPPORTUNITIES] Creating job application record");
-    const { error: applicationError } = await supabase
+    
+    // Check if application already exists
+    const { data: existingApplication, error: checkError } = await supabase
       .from("job_applications")
-      .insert([{
-        job_id: jobId,
-        student_id: userId, // Use the user's ID (profile.id) for job applications
-        cv_id: cvData.id,
-        cover_letter: recommendationLetter,
-        status: 'pending'
-      }]);
+      .select("id")
+      .eq("job_id", jobId)
+      .eq("student_id", userId)
+      .maybeSingle();
       
-    if (applicationError) {
-      console.error("[OPPORTUNITIES] Error creating job application record:", applicationError);
-      // Continue with success even if application record fails - match status update is sufficient
-      console.warn("[OPPORTUNITIES] Match status updated but job application record creation failed");
+    if (checkError) {
+      console.error("[OPPORTUNITIES] Error checking for existing application:", checkError);
+      // Continue with success even if check fails - match status update is sufficient
+    } else if (existingApplication) {
+      console.log("[OPPORTUNITIES] Application already exists, skipping creation");
     } else {
-      console.log("[OPPORTUNITIES] Job application record created successfully");
+      // Create new application only if one doesn't exist
+      const { error: applicationError } = await supabase
+        .from("job_applications")
+        .insert([{
+          job_id: jobId,
+          student_id: userId, // Use the user's ID (profile.id) for job applications
+          cv_id: cvData.id,
+          cover_letter: recommendationLetter,
+          status: 'pending'
+        }]);
+        
+      if (applicationError) {
+        console.error("[OPPORTUNITIES] Error creating job application record:", applicationError);
+        // Continue with success even if application record fails - match status update is sufficient
+        console.warn("[OPPORTUNITIES] Match status updated but job application record creation failed");
+      } else {
+        console.log("[OPPORTUNITIES] Job application record created successfully");
+      }
     }
     
     console.log("[OPPORTUNITIES] Successfully processed application for job:", jobId, "for user:", userId);

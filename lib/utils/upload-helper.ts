@@ -26,3 +26,12 @@ export const validateImageFile = (file: File): boolean => {
 export const validatePDFFile = (file: File): boolean => {
   return file.type === 'application/pdf';
 };
+
+export const validateCVFile = (file: File): boolean => {
+  const validTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ];
+  return validTypes.includes(file.type);
+};

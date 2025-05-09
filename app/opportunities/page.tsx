@@ -4,10 +4,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import TinderCard from 'react-tinder-card'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Check, X, Briefcase, MapPin, Calendar, Undo2, DollarSign, Info, HelpCircle, ChevronRight, XIcon } from 'lucide-react'
+import { Loader2, Check, X, Briefcase, MapPin, Calendar, Undo2, DollarSign, Info, HelpCircle, ChevronRight, XIcon, AlertTriangle } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import { getMatchedJobsForCurrentUser, applyForJob, declineJob } from "@/lib/actions/opportunities"
 import { Job } from "@/lib/types/database"
+import { JobStatus } from "@/lib/types/employer"
 import { CompanyLogo } from "@/components/ui/company-logo"
 import { cn } from "@/lib/utils"
 import {
@@ -18,25 +19,14 @@ import {
 } from "@/components/ui/tooltip"
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+import Image from 'next/image';
+import JobCard from "@/app/components/jobs/JobCard"
 
-// Define the extended Job type with match score
-interface JobWithMatchScore {
-  id: string;
-  employer_id: string;
-  title: string;
-  description: string;
-  location: string | null;
-  job_type: string | null;
-  salary_range: string | null;
-  required_skills: string[] | null;
-  preferred_skills?: Record<string, any> | null;
-  application_deadline?: string | null;
-  created_at: string;
-  updated_at?: string | null;
-  status?: string;
-  company_name: string | null;
+// Define the extended Job type with match score and company logo
+interface JobWithMatchScore extends Job {
+  match_score?: number | null;
   company_logo_url?: string | null;
-  match_score: number | null;
   is_active?: boolean;
 }
 
@@ -48,12 +38,63 @@ export default function OpportunitiesPage() {
   const { toast } = useToast()
   
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [isProcessingCV, setIsProcessingCV] = useState(false);
 
   // Keep track of removed jobs for undo functionality
-  const [lastRemovedJob, setLastRemovedJob] = useState<{ job: JobWithMatchScore, direction: 'left' | 'right' } | null>(null)
+  const [lastRemovedJob, setLastRemovedJob] = useState<{ job: Job, direction: 'left' | 'right' } | null>(null)
 
   // Refs for controlling cards programmatically
   const childRefs = useMemo(() => Array(jobs.length).fill(0).map(() => React.createRef<any>()), [jobs.length])
+
+  // Check if CV is currently being processed
+  useEffect(() => {
+    async function checkCVProcessingStatus() {
+      try {
+        // Get current user
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session?.user?.id) {
+          return;
+        }
+        
+        const userId = session.user.id;
+        
+        // Check if user has any CV records
+        const { data: cvs, error: cvError } = await supabase
+          .from("cvs")
+          .select("id, skills")
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(1);
+          
+        if (cvError) {
+          console.error("Error checking CV status:", cvError);
+          return;
+        }
+        
+        // If no CVs, we're not processing anything
+        if (!cvs || cvs.length === 0) {
+          setIsProcessingCV(false);
+          return;
+        }
+        
+        const cv = cvs[0];
+        
+        // If skills is null, CV is still being processed
+        setIsProcessingCV(cv.skills === null);
+        
+        // Check again after a short delay if still processing
+        if (cv.skills === null) {
+          setTimeout(checkCVProcessingStatus, 10000); // Check again in 10 seconds
+        }
+      } catch (error) {
+        console.error("Error checking CV processing status:", error);
+      }
+    }
+    
+    checkCVProcessingStatus();
+  }, []);
 
   useEffect(() => {
     async function fetchJobs() {
@@ -75,12 +116,12 @@ export default function OpportunitiesPage() {
             salary_range: (job.salary_range as string | null) ?? null,
             required_skills: Array.isArray(job.required_skills)
               ? job.required_skills.filter((s: any) => typeof s === 'string')
-              : null,
+              : [],
             preferred_skills: job.preferred_skills as Record<string, any> | null,
             application_deadline: job.application_deadline as string | null,
             created_at: job.created_at as string,
             updated_at: job.updated_at as string | null,
-            status: job.status as string,
+            status: (job.status as JobStatus) ?? 'open',
             is_active: (job.is_active as boolean) ?? true,
             match_score: typeof job.match_score === 'number' ? job.match_score : null,
           }));
@@ -91,7 +132,7 @@ export default function OpportunitiesPage() {
           toast({
             title: "Error Loading Jobs",
             description: result.error || "Could not fetch job opportunities.",
-            variant: "destructive",
+            variant: "default",
           })
         }
       } catch (err) {
@@ -100,7 +141,7 @@ export default function OpportunitiesPage() {
         toast({
           title: "Unexpected Error",
           description: "Could not fetch job opportunities due to an unexpected error.",
-          variant: "destructive",
+          variant: "default",
         })
       } finally {
         setLoading(false)
@@ -109,37 +150,54 @@ export default function OpportunitiesPage() {
     fetchJobs()
   }, [toast])
 
-  const swiped = (direction: string, job: JobWithMatchScore, index: number) => {
-    // Ensure direction is only left or right before processing
-    if (direction !== 'left' && direction !== 'right') return
-    
-    console.log(`Swiped ${direction} on ${job.title}`)
-    setCurrentIndex(index - 1)
-    setLastRemovedJob({ job, direction }) // Store last removed job for undo
+  const handleSwipe = async (direction: string, job: Job) => {
+    try {
+      if (direction === 'right') {
+        // Handle apply
+        const result = await applyForJob(job.id)
+        if (result.success) {
+          toast({
+            title: "Application Submitted",
+            description: `You've applied for ${job.title}`,
+          })
+        } else {
+          toast({
+            title: "Application Failed",
+            description: result.error || "Failed to submit application",
+            variant: "default",
+          })
+          return // Don't remove the job card if application failed
+        }
+      } else if (direction === 'left') {
+        // Handle decline
+        const result = await declineJob(job.id)
+        if (result.success) {
+          toast({
+            title: "Job Declined",
+            description: `You've passed on ${job.title}`,
+          })
+        } else {
+          toast({
+            title: "Action Failed",
+            description: result.error || "Failed to decline job",
+            variant: "default",
+          })
+          return // Don't remove the job card if decline failed
+        }
+      }
 
-    // Call server action based on direction
-    if (direction === 'right') {
-      applyForJob(job.id).then(result => {
-        if (result.success) {
-          toast({ 
-            title: `Applying for ${job.title}...`, 
-            description: result.data?.letterGenerated 
-              ? "Generated recommendation and submitted application."
-              : "Application submitted (recommendation generation failed)." 
-          });
-        } else {
-          toast({ title: "Application Failed", description: result.error, variant: "destructive" });
-          // Optionally, implement undo or retry logic here
-        }
-      });
-    } else {
-      declineJob(job.id).then(result => {
-        if (result.success) {
-          toast({ title: `Declined ${job.title}`, description: "We won't show you this job again." })
-        } else {
-          toast({ title: "Decline Failed", description: result.error, variant: "destructive" })
-          // Optionally, implement undo or retry logic here
-        }
+      // Store the removed job for potential undo
+      setLastRemovedJob({ job: job as Job, direction: direction as 'left' | 'right' })
+      
+      // Update jobs state
+      setJobs(prevJobs => prevJobs.filter(j => j.id !== job.id))
+      setCurrentIndex(prevIndex => prevIndex - 1)
+    } catch (error) {
+      console.error("Error handling swipe:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "default",
       })
     }
   }
@@ -183,13 +241,13 @@ export default function OpportunitiesPage() {
     setLastRemovedJob(null) // Clear the last removed job
   }
 
-  // Helper function to get match score color
+  // Helper function to get match score color - replaced with monochrome shades
   const getScoreColor = (score: number | null): string => {
     if (score === null) return "text-gray-400"
-    if (score >= 80) return "text-green-500"
-    if (score >= 60) return "text-blue-500"
-    if (score >= 40) return "text-yellow-500"
-    return "text-red-500"
+    if (score >= 80) return "text-gray-800 dark:text-gray-200"
+    if (score >= 60) return "text-gray-700 dark:text-gray-300"
+    if (score >= 40) return "text-gray-600 dark:text-gray-400"
+    return "text-gray-500 dark:text-gray-500"
   }
   
   // Helper function to get human-readable match score label
@@ -204,7 +262,7 @@ export default function OpportunitiesPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <Loader2 className="h-16 w-16 animate-spin text-gray-700 dark:text-gray-300" />
       </div>
     )
   }
@@ -212,7 +270,7 @@ export default function OpportunitiesPage() {
   if (error) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-center px-4">
-        <h2 className="text-2xl font-semibold text-destructive mb-4">Error Loading Jobs</h2>
+        <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Error Loading Jobs</h2>
         <p className="text-muted-foreground mb-6">{error}</p>
         <Button onClick={() => window.location.reload()}>Retry</Button>
       </div>
@@ -220,17 +278,18 @@ export default function OpportunitiesPage() {
   }
 
   return (
-    <main className="min-h-screen container mx-auto py-8 flex flex-col items-center relative overflow-hidden">
-      <h1 className="text-4xl font-bold mb-6 text-center">Job Opportunities</h1>
-      <p className="text-muted-foreground mb-2 text-center">Swipe right to apply, left to pass.</p>
-      
-      {/* How matching works tooltip */}
-      <div className="mb-8">
+    <div className="min-h-screen bg-background flex flex-col pt-8 md:pt-12 overflow-hidden">
+      {/* Header Section */}
+      <header className="w-full max-w-3xl mx-auto px-4 text-center mb-6 md:mb-8">
+        <h1 className="text-3xl lg:text-4xl font-semibold mb-2 text-gray-900 dark:text-gray-50">Job Opportunities</h1>
+        <p className="text-muted-foreground text-lg mb-4">
+          Drag card to the right to apply, left to pass.
+        </p>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="text-sm text-primary flex items-center gap-1 hover:underline">
-                <HelpCircle size={14} />
+              <button className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1.5 hover:underline mx-auto transition-colors">
+                <HelpCircle className="h-4 w-4" />
                 <span>How matching works</span>
               </button>
             </TooltipTrigger>
@@ -240,302 +299,160 @@ export default function OpportunitiesPage() {
                 Our AI-powered system matches your skills and experience with job requirements.
               </p>
               <ul className="text-xs space-y-1 list-disc pl-4">
-                <li><span className="text-green-500 font-bold">80%+</span>: Strong match to your skills</li>
-                <li><span className="text-blue-500 font-bold">60-79%</span>: Good match with some skill alignment</li>
-                <li><span className="text-yellow-500 font-bold">40-59%</span>: Potential match worth exploring</li>
-                <li><span className="text-red-500 font-bold">&lt;40%</span>: Limited match but still might be interesting</li>
+                <li><span className="text-gray-800 dark:text-gray-200 font-bold">80%+</span>: Strong match</li>
+                <li><span className="text-gray-700 dark:text-gray-300 font-bold">60-79%</span>: Good match</li>
+                <li><span className="text-gray-600 dark:text-gray-400 font-bold">40-59%</span>: Potential match</li>
+                <li><span className="text-gray-500 dark:text-gray-500 font-bold">&lt;40%</span>: Limited match</li>
               </ul>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      </div>
-      
-      <div className="w-full max-w-xl h-[70vh] relative flex items-center justify-center">
-        {jobs.length > 0 ? (
-          jobs.map((job, index) => (
-            <TinderCard
-              ref={childRefs[index]}
-              className={`absolute swipe-card ${index === currentIndex ? 'cursor-grab active-card' : 'cursor-default'}`}
-              key={job.id}
-              onSwipe={(dir) => swiped(dir, job, index)}
-              onCardLeftScreen={() => outOfFrame(job.title, index)}
-              preventSwipe={['up', 'down']}
-              swipeRequirementType="position"
-              swipeThreshold={80}
-              flickOnSwipe={true}
-            >
-              <div className="w-full h-full overflow-hidden" style={{ opacity: expandedJobId === job.id ? 0 : 1, transition: 'opacity 0.1s' }}>
-                {/* Card Content Div - now wrapped with motion.div */}
-                <motion.div 
-                  layoutId={`card-container-${job.id}`}
-                  className={cn(
-                    "group relative h-full flex flex-col transition-shadow duration-300", // Removed transition-all as layout handles it
-                    "border border-gray-100/80 dark:border-gray-700 bg-white dark:bg-black rounded-xl",
-                    "hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgba(255,255,255,0.1)]",
-                    "will-change-transform touch-manipulation",
-                    "overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent"
-                  )}
-                >
-                  {/* Background pattern and gradient effect - keeping this subtle for dark mode */}
-                  <motion.div layout className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[length:6px_6px]" />
-                  </motion.div>
-                  
-                  {/* Header area with company and match score */}
-                  <motion.div layout="position" className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/5 dark:to-transparent border-b border-gray-100/80 dark:border-gray-700">
-                    <div className="flex items-start gap-4">
-                      {/* Company Logo */}
-                      <CompanyLogo 
-                        logoUrl={job.company_logo_url}
-                        companyName={job.company_name || 'Company'}
-                        size="md"
-                        className="shadow-md"
-                      />
-                      
-                      {/* Job Title & Company */}
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-xl text-primary tracking-tight mb-1">{job.title}</h3>
-                        <p className="text-base text-gray-600 dark:text-gray-300 font-medium">
-                          {job.company_name ?? 'Unknown Company'}
-                        </p>
-                      </div>
-                      
-                      {/* Match Score */}
-                      {job.match_score !== null && (
-                        <div className="flex flex-col items-center">
-                          <span
-                            className={cn(
-                              "text-base font-bold px-3 py-1.5 rounded-lg",
-                              "bg-black/5 dark:bg-white/10 backdrop-blur-sm",
-                              getScoreColor(job.match_score)
-                            )}
-                          >
-                            {job.match_score}%
-                          </span>
-                          <span className="text-xs mt-1 text-gray-500 dark:text-gray-400 font-medium">
-                            {getScoreLabel(job.match_score)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                  
-                  {/* Job details */}
-                  <motion.div layout="position" className="relative flex-grow p-5 space-y-4">
-                    {/* Job Details Pills */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-black/5 dark:bg-white/10 flex-shrink-0">
-                          <MapPin className="w-5 h-5 text-blue-500" />
-                        </div>
-                        <span className="text-sm text-gray-600 dark:text-gray-300 truncate">
-                          {job.location || 'Remote'}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-black/5 dark:bg-white/10 flex-shrink-0">
-                          <Briefcase className="w-5 h-5 text-emerald-500" />
-                        </div>
-                        <span className="text-sm text-gray-600 dark:text-gray-300 truncate">
-                          {job.job_type || 'Full-time'}
-                        </span>
-                      </div>
-                      
-                      {job.salary_range && (
-                        <div className="flex items-center space-x-2 col-span-2">
-                          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-black/5 dark:bg-white/10 flex-shrink-0">
-                            <DollarSign className="w-5 h-5 text-purple-500" />
-                          </div>
-                          <span className="text-sm text-gray-600 dark:text-gray-300">
-                            {job.salary_range}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Description */}
-                    <motion.div layout="position" className="mt-4">
-                      <h4 className="font-medium text-[15px] text-gray-900 dark:text-gray-100 tracking-tight mb-2">
-                        Description
-                      </h4>
-                      <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-                        <div className="line-clamp-[8]">
-                          {job.description?.split('\n')
-                            .filter(p => p.trim())
-                            .map((paragraph, i) => (
-                              <p key={i} className="whitespace-pre-line mb-2">
-                                {paragraph}
-                              </p>
-                            )) || <p>No description provided.</p>}
-                        </div>
-                        
-                        {/* See more link if description is longer than a certain threshold (e.g., 300 chars) */}
-                        {job.description && job.description.length > 300 && (
-                          <div className="mt-3">
-                            <Link 
-                              href={`/opportunities/${job.id}`}
-                              className="inline-flex items-center text-sm text-primary hover:text-primary/90 font-medium cursor-pointer px-2 py-1 rounded hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors"
-                            >
-                              Show Full Description <ChevronRight className="ml-1 h-4 w-4" />
-                            </Link>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                    
-                    {/* Skills Tags */}
-                    {job.required_skills && Array.isArray(job.required_skills) && job.required_skills.length > 0 && (
-                      <motion.div layout="position" className="mt-4">
-                        <h4 className="font-medium text-[15px] text-gray-900 dark:text-gray-100 tracking-tight mb-2">
-                          Required Skills
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {job.required_skills.map((skill, i) => (
-                            <span
-                              key={i}
-                              className="px-3 py-1.5 text-xs rounded-md bg-black/5 dark:bg-white/10 text-gray-600 dark:text-gray-300 hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
-                            >
-                              {skill}
-                            </span>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                    
-                    {/* Action Hint */}
-                    <motion.div layout="position" className="flex justify-end mt-6">
-                      <span className="text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:underline">
-                        Swipe right to apply →
-                      </span>
-                    </motion.div>
-                  </motion.div>
-                  
-                  {/* Border gradient effect */}
-                  <motion.div layout className="absolute inset-0 -z-10 rounded-xl p-px bg-gradient-to-br from-transparent via-primary/10 to-transparent dark:via-primary/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                </motion.div>
-              </div>
-            </TinderCard>
-          ))
-        ) : (
-          !loading && (
-            <div className="text-center text-muted-foreground bg-muted/20 p-8 rounded-lg border">
-              <h2 className="text-xl font-semibold mb-3">No More Jobs</h2>
-              <p>You've seen all available opportunities for now. Check back later!</p>
+      </header>
+
+      {/* Main Content Area (CV Alert + Cards) */}
+      <main className="w-full flex-grow flex flex-col items-center justify-start px-4">
+        {/* CV Processing Alert */}
+        {isProcessingCV && (
+          <div className="w-full max-w-md mx-auto mb-6 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex items-center gap-3 text-gray-700 dark:text-gray-200">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <div className="flex-grow">
+              <p className="text-sm">
+                Your resume is still being processed. Job matches will update when complete.
+              </p>
             </div>
-          )
+          </div>
         )}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="mt-8 flex items-center justify-center gap-8 z-10">
-        <Button 
-          variant="outline" 
-          size="lg" 
-          className="rounded-full p-4 h-20 w-20 border-2 border-red-500 text-red-500 hover:bg-red-500/10 hover:text-red-600 hover:border-red-600 disabled:opacity-50"
-          onClick={() => swipe('left')}
-          disabled={currentIndex < 0}
-        >
-          <X size={36} />
-        </Button>
         
-        <Button 
-          variant="outline" 
-          size="icon" 
-          className="rounded-full p-2 h-12 w-12 border-2 border-yellow-500 text-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-600 hover:border-yellow-600 disabled:opacity-50"
-          onClick={undoSwipe}
-          disabled={!lastRemovedJob}
-        >
-          <Undo2 size={20} />
-        </Button>
-
-        <Button 
-          variant="outline" 
-          size="lg" 
-          className="rounded-full p-4 h-20 w-20 border-2 border-green-500 text-green-500 hover:bg-green-500/10 hover:text-green-600 hover:border-green-600 disabled:opacity-50"
-          onClick={() => swipe('right')}
-          disabled={currentIndex < 0}
-        >
-          <Check size={36} />
-        </Button>
-      </div>
-    </main>
+        {/* Card Container */}
+        <div className="card-container mb-8">
+          {jobs.length > 0 ? (
+            <div className="relative h-full w-full">
+              {jobs.map((job, index) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  isActive={index === currentIndex}
+                  onSwipe={handleSwipe}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    display: index === currentIndex || index === currentIndex - 1 || index === currentIndex + 1 ? 'block' : 'none', // Show 3 cards for smoother visual stacking
+                    zIndex: jobs.length - index,
+                    transform: index === currentIndex ? 'scale(1)' : 
+                               index === currentIndex - 1 ? 'scale(0.95) translateY(20px)' : 
+                               index === currentIndex + 1 ? 'scale(0.95) translateY(20px)' : 'scale(0.9)',
+                    opacity: index === currentIndex ? 1 : 
+                             index === currentIndex -1 ? 0.7 : 
+                             index === currentIndex + 1 ? 0.7 : 0.3,
+                    transition: 'transform 0.3s ease-out, opacity 0.3s ease-out'
+                  }}
+                  className={cn(
+                    "swipe-card",
+                    index === currentIndex && "active-card"
+                  )}
+                />
+              ))}
+              
+              {/* Undo button */}
+              {lastRemovedJob && (
+                <div className="absolute -bottom-14 left-1/2 transform -translate-x-1/2 z-20">
+                  <button
+                    onClick={undoSwipe}
+                    className="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 
+                    rounded-full shadow-md text-sm font-medium flex items-center gap-2
+                    hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                    Undo
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground bg-gray-100 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700 p-8">
+              <Briefcase className="h-12 w-12 mb-4 text-gray-400 dark:text-gray-500" />
+              <p className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2">No more jobs to show</p>
+              <p className="text-sm max-w-xs mx-auto">Check back later for new opportunities that match your skills!</p>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
   )
 }
 
-// Add some basic CSS for the card stack effect (optional, can be done via Tailwind)
+// Update the CSS styles
 const styles = `
 .swipe-card {
-  width: 95%;
-  max-width: 560px; /* Made wider */
-  height: 70vh;
-  max-height: 700px; /* Made taller */
   position: absolute;
-  border-radius: 1rem; /* Add rounded corners */
-  background-color: transparent; /* Changed to transparent for bento card */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 1rem; /* Keep this for the TinderCard, JobCard itself has rounded-2xl */
+  background-color: transparent;
   will-change: transform;
-  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   touch-action: manipulation;
   -webkit-user-drag: none;
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px; /* Add some padding around the card if needed for shadow visibility */
 }
 
-.swipe-card:hover {
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 8px 20px rgba(0, 0, 0, 0.08);
-}
-
-/* Active card animations and hover effects */
 .active-card {
-  transform: scale(1.02);
+  /* The primary scaling/transform for the active card (when not being dragged) is now on JobCard */
+  /* This class can be used for other non-transform active-state styles if needed */
+  transform: scale(1); /* Ensure it starts at normal scale */
 }
-
-/* .active-card:hover .apply-overlay {
-  opacity: 0;
-}
-
-.active-card:hover .decline-overlay {
-  opacity: 0;
-} */ /* Commented out as overlays are removed */
 
 .active-card:hover {
-  transform: scale(1.04);
+  /* Hover effects (translate, shadow) are now handled by the JobCard component itself when isActive is true. */
+  /* No transform needed here; avoids conflict. */
 }
 
-/* Maintain hover state during drag */
 .active-card:active {
-  transform: scale(1.04);
-  transition: none;
+  /* This is for when the card is actively being dragged/pressed */
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
 }
 
-/* Hover effects for directional movement - REMOVED as overlays are gone
-.active-card.moving-right .apply-overlay,
-.active-card:active.moving-right .apply-overlay {
-  opacity: 0.8 !important;
-}
-
-.active-card.moving-left .decline-overlay,
-.active-card:active.moving-left .decline-overlay {
-  opacity: 0.8 !important;
-}
-*/
-
-/* Card swipe animation classes */
 @keyframes swipeRight {
   from { transform: translateX(0) rotate(0); opacity: 1; }
-  to { transform: translateX(1000px) rotate(30deg); opacity: 0; }
+  to { transform: translateX(100%) rotate(6deg); opacity: 0; }
 }
 
 @keyframes swipeLeft {
   from { transform: translateX(0) rotate(0); opacity: 1; }
-  to { transform: translateX(-1000px) rotate(-30deg); opacity: 0; }
+  to { transform: translateX(-110%) rotate(-6deg); opacity: 0; }
 }
 
 .swiping-right {
-  animation: swipeRight 0.6s cubic-bezier(0.165, 0.84, 0.44, 1) forwards;
+  animation: swipeRight 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .swiping-left {
-  animation: swipeLeft 0.6s cubic-bezier(0.165, 0.84, 0.44, 1) forwards;
+  animation: swipeLeft 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.opportunities-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  width: 100%;
+}
+
+.card-container {
+  position: relative;
+  width: 100%;
+  max-width: 480px; /* Increased max-width for bigger card */
+  height: 580px; /* Match JobCard height */
+  margin: 0 auto;
+  overflow: hidden;
 }
 `
 
@@ -543,53 +460,4 @@ if (typeof window !== 'undefined') {
   const styleSheet = document.createElement("style")
   styleSheet.innerText = styles
   document.head.appendChild(styleSheet)
-  
-  // REMOVED JavaScript for adding moving-left/moving-right classes
-  /*
-  setTimeout(() => {
-    const cards = document.querySelectorAll('.swipe-card')
-    cards.forEach(card => {
-      let startX = 0
-      
-      card.addEventListener('mousedown', function(e) {
-        startX = (e as MouseEvent).clientX
-        card.classList.remove('moving-left', 'moving-right')
-      })
-      
-      card.addEventListener('touchstart', function(e) {
-        startX = (e as TouchEvent).touches[0].clientX
-        card.classList.remove('moving-left', 'moving-right')
-      })
-      
-      card.addEventListener('mousemove', function(e) {
-        if ((e as MouseEvent).buttons === 1) { // Left mouse button is pressed
-          const diffX = (e as MouseEvent).clientX - startX
-          updateCardDirection(diffX)
-        }
-      })
-      
-      card.addEventListener('touchmove', function(e) {
-        const diffX = (e as TouchEvent).touches[0].clientX - startX
-        updateCardDirection(diffX)
-      })
-      
-      card.addEventListener('mouseup', function() {
-        card.classList.remove('moving-left', 'moving-right')
-      })
-      
-      card.addEventListener('touchend', function() {
-        card.classList.remove('moving-left', 'moving-right')
-      })
-      
-      function updateCardDirection(diffX: number) {
-        card.classList.remove('moving-left', 'moving-right')
-        if (diffX > 20) {
-          card.classList.add('moving-right')
-        } else if (diffX < -20) {
-          card.classList.add('moving-left')
-        }
-      }
-    })
-  }, 1000) // Small delay to ensure cards are loaded
-  */
 }

@@ -7,7 +7,7 @@ import { getCurrentUserMostRecentCv } from "@/lib/actions/cv";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/providers/auth-provider";
 import { getStudentApplications } from "@/lib/actions/application";
-import { Loader2, Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, ArrowRight, Building } from "lucide-react";
+import { Loader2, Briefcase, MapPin, Calendar, Clock, CheckCircle, AlertCircle, ArrowRight, Building, ArrowUpDown } from "lucide-react";
 import { formatDate } from "@/lib/utils/date-utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,13 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ApplicationCard } from "@/components/ui/application-card";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Add custom CSS for progress indicators
 import "./track.css";
@@ -160,6 +167,7 @@ export default function TrackApplicationPage() {
   const [applications, setApplications] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const [sortOption, setSortOption] = useState("date");
   const { profile } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
@@ -226,6 +234,18 @@ export default function TrackApplicationPage() {
     ? applications
     : applications.filter(app => app.status === activeTab);
   
+  // Sort applications based on sort option
+  const sortedApplications = [...filteredApplications].sort((a, b) => {
+    if (sortOption === "match") {
+      const scoreA = typeof a.match_score === 'number' ? a.match_score : 0;
+      const scoreB = typeof b.match_score === 'number' ? b.match_score : 0;
+      return scoreB - scoreA; // Sort by match score descending
+    } else {
+      // Default: sort by date (newest first)
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+  });
+  
   // Handler for viewing job details
   const handleViewJobDetails = (jobId: string) => {
     // Since we've removed opportunities/[id], let's just provide feedback to the user
@@ -291,11 +311,35 @@ export default function TrackApplicationPage() {
                   Shortlisted
                 </TabsTrigger>
               </TabsList>
-              <div className="text-sm text-muted-foreground">
-                {filteredApplications.length} 
-                {activeTab === "all" 
-                  ? " total applications" 
-                  : ` ${activeTab} application${filteredApplications.length !== 1 ? 's' : ''}`}
+              <div className="flex items-center gap-2">
+                <Select 
+                  value={sortOption} 
+                  onValueChange={setSortOption}
+                >
+                  <SelectTrigger className="w-[160px] h-9">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="date">
+                      <div className="flex items-center">
+                        <Calendar className="mr-2 h-4 w-4" />
+                        <span>Date Applied</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="match">
+                      <div className="flex items-center">
+                        <ArrowUpDown className="mr-2 h-4 w-4" />
+                        <span>Match Score</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="text-sm text-muted-foreground">
+                  {filteredApplications.length} 
+                  {activeTab === "all" 
+                    ? " total applications" 
+                    : ` ${activeTab} application${filteredApplications.length !== 1 ? 's' : ''}`}
+                </div>
               </div>
             </div>
             
@@ -328,14 +372,14 @@ export default function TrackApplicationPage() {
                 </Card>
               ) : (
                 <div className="grid grid-cols-1 gap-6">
-                  {filteredApplications.map(app => {
+                  {sortedApplications.map(app => {
                     // Get required skills from job data if available
                     const requiredSkills = app.job?.required_skills || [];
                     
                     // Use the match_score from the application if available (from database)
                     // Otherwise fall back to calculating it on the frontend
-                    const matchPercentage = app.match_score !== undefined 
-                      ? app.match_score 
+                    const matchPercentage = typeof app.match_score === 'number' 
+                      ? Math.round(app.match_score) 
                       : calculateSkillMatch(userSkills, Array.isArray(requiredSkills) ? requiredSkills : []);
                     
                     return (

@@ -8,13 +8,15 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
-import { readFileAsBase64, validateFileSize, validatePDFFile } from "@/lib/utils/upload-helper";
+import { readFileAsBase64, validateFileSize, validateCVFile } from "@/lib/utils/upload-helper";
 import { uploadFileToCloudinary } from "@/lib/actions/upload";
 import { uploadAndCreateCv } from "@/lib/actions/cv";
 import { updateProfile } from "@/lib/actions/profile";
 import { Progress } from "@/components/ui/progress";
 import { Check, Github, Upload, Loader2, ArrowLeft, ArrowRight, X } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { supabase } from "@/lib/supabase";
+import { FileDropInput } from "@/components/ui/file-drop-input";
 
 enum OnboardingStep {
   WELCOME = 0,
@@ -36,35 +38,69 @@ export default function OnboardingPage() {
   // Check if user came from GitHub OAuth
   const [isGithubUser, setIsGithubUser] = useState(false);
 
+  // Add new state for CV processing status
+  const [cvProcessingStatus, setCvProcessingStatus] = useState<{
+    stage: 'uploading' | 'parsing' | 'analyzing' | 'matching' | 'complete' | 'error';
+    progress: number;
+    error?: string;
+  } | null>(null);
+
   useEffect(() => {
     if (isLoading) return;
 
+    // Log current state for debugging
+    console.log("Onboarding state check:", {
+      user: user?.id,
+      profile: {
+        has_uploaded_cv: profile?.has_uploaded_cv,
+        has_completed_onboarding: profile?.has_completed_onboarding
+      },
+      isLoading,
+      currentStep
+    });
+
     // If no user is logged in, redirect to login
     if (!user) {
-      router.push("/auth/login");
+      console.log("No user found, redirecting to login");
+      window.location.href = "/auth/login";
       return;
     }
 
     // Check if user has already completed onboarding or has uploaded a CV
-    // If either flag is true, consider onboarding complete
     if (profile && (profile.has_completed_onboarding || profile.has_uploaded_cv)) {
-      console.log("User has already completed onboarding or uploaded a CV, redirecting to home page");
+      console.log("Onboarding completion check:", {
+        has_completed_onboarding: profile.has_completed_onboarding,
+        has_uploaded_cv: profile.has_uploaded_cv
+      });
       
       // If the has_completed_onboarding flag is false but has_uploaded_cv is true,
-      // update the has_completed_onboarding flag in the background for consistency
+      // update the has_completed_onboarding flag and wait for it to complete
       if (profile.has_uploaded_cv && !profile.has_completed_onboarding && user.id) {
-        console.log("Updating has_completed_onboarding flag to match has_uploaded_cv");
-        updateProfile(user.id, { has_completed_onboarding: true })
-          .then(result => {
+        console.log("Detected inconsistency, updating has_completed_onboarding flag");
+        (async () => {
+          try {
+            const result = await updateProfile(user.id, { 
+              has_completed_onboarding: true 
+            });
             console.log("Profile update result:", result);
-            // No need to wait for this to complete since we're already redirecting
-          })
-          .catch(error => {
+            
+            if (result.success) {
+              // Refresh user data before redirecting
+              await refreshUser();
+              console.log("User data refreshed, redirecting to success guide");
+              window.location.href = "/success-guide";
+            } else {
+              console.error("Failed to update profile:", result.error);
+            }
+          } catch (error) {
             console.error("Error updating profile:", error);
-          });
+          }
+        })();
+        return;
       }
       
-      router.push("/");
+      console.log("Redirecting to success guide");
+      window.location.href = "/success-guide";
       return;
     }
 
@@ -80,7 +116,7 @@ export default function OnboardingPage() {
 
     // Calculate initial progress
     updateProgress();
-  }, [user, profile, isLoading, router]);
+  }, [user, profile, isLoading, currentStep]);
 
   const updateProgress = () => {
     let newProgress = 0;
@@ -93,42 +129,77 @@ export default function OnboardingPage() {
     setProgress(newProgress);
   };
 
+  // Add new function to handle CV processing status updates
+  const updateCvProcessingStatus = async (userId: string) => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('cv_processing_status, cv_processing_error')
+        .eq('id', userId)
+        .single();
+      
+      if (profile?.cv_processing_status) {
+        setCvProcessingStatus({
+          stage: profile.cv_processing_status,
+          progress: getProgressForStage(profile.cv_processing_status),
+          error: profile.cv_processing_error || undefined
+        });
+      }
+    } catch (error) {
+      console.error('Error checking CV processing status:', error);
+    }
+  };
+
+  // Helper function to get progress percentage for each stage
+  const getProgressForStage = (stage: string): number => {
+    switch (stage) {
+      case 'uploading': return 25;
+      case 'parsing': return 50;
+      case 'analyzing': return 75;
+      case 'matching': return 90;
+      case 'complete': return 100;
+      case 'error': return 0;
+      default: return 0;
+    }
+  };
+
   const handleCvUpload = async () => {
     if (!cvFile || !user) return;
     
     setLoading(true);
-    console.log("Uploading CV:", cvFile.name);
-    
-    // Add upload timeout
-    const uploadTimeout = setTimeout(() => {
-      setLoading(false);
-      toast({
-        title: "Upload timeout",
-        description: "The upload is taking longer than expected. Please try again with a smaller file.",
-        variant: "destructive",
-      });
-    }, 30000); // 30 second timeout
+    setCvProcessingStatus({
+      stage: 'uploading',
+      progress: 25
+    });
     
     try {
       // Validate the file
-      if (!validatePDFFile(cvFile)) {
+      if (!validateCVFile(cvFile)) {
+        setCvProcessingStatus({
+          stage: 'error',
+          progress: 0,
+          error: 'Invalid file format. Please upload a PDF or Word file.'
+        });
         toast({
           title: "Invalid file",
-          description: "Please upload a valid PDF file",
+          description: "Please upload a valid PDF or Word file",
           variant: "destructive",
         });
-        clearTimeout(uploadTimeout);
         setLoading(false);
         return;
       }
 
       if (!validateFileSize(cvFile, 10)) {
+        setCvProcessingStatus({
+          stage: 'error',
+          progress: 0,
+          error: 'File size exceeds 10MB limit.'
+        });
         toast({
           title: "File too large",
           description: "CV must be less than 10MB",
           variant: "destructive",
         });
-        clearTimeout(uploadTimeout);
         setLoading(false);
         return;
       }
@@ -136,110 +207,48 @@ export default function OnboardingPage() {
       // Upload to Cloudinary and process with AI
       const base64Data = await readFileAsBase64(cvFile);
       
-      // Instead of the old uploadAndCreateCv function, use the new AI-powered one
+      // Import and use the AI-powered parser
       const { uploadAndParseCV } = await import('@/lib/actions/resume-parser');
       
-      // Try-catch specifically for the upload operation
-      try {
-        const cvResult = await uploadAndParseCV(user.id, base64Data);
-        console.log("CV upload result:", cvResult);
-
-        if (!cvResult.success) {
-          throw new Error(cvResult.error || 'Failed to save CV information');
-        }
-      } catch (uploadError: any) {
-        console.error("CV upload failed:", uploadError);
-        clearTimeout(uploadTimeout);
-        setLoading(false);
-        toast({
-          title: "Upload failed",
-          description: uploadError.message || "CV upload failed. Please try again with a smaller file.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Wait a moment for the background CV processing to complete
-      // This helps ensure GitHub profile is extracted before completing onboarding
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log("Starting CV upload and parsing...");
       
-      // Refresh user data to get latest profile info including extracted GitHub profile
-      await refreshUser();
-      
-      // Force the onboarding completion status with a direct update
-      // This is a critical update, so we'll try multiple times if needed
-      let updateSuccess = false;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (!updateSuccess && retryCount < maxRetries) {
-        try {
-          console.log(`Explicitly marking onboarding as complete (attempt ${retryCount + 1})`);
-          const result = await updateProfile(user.id, {
-            has_uploaded_cv: true,
-            has_completed_onboarding: true
-          });
-          
-          if (result.success) {
-            updateSuccess = true;
-            console.log("Successfully marked onboarding as complete:", result);
-          } else {
-            throw new Error(result.error);
-          }
-        } catch (updateError) {
-          console.error(`Failed to mark onboarding as complete (attempt ${retryCount + 1}):`, updateError);
-          retryCount++;
-          
-          if (retryCount < maxRetries) {
-            // Wait a bit before retrying
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-      }
-      
-      if (!updateSuccess) {
-        console.warn("Warning: Could not mark onboarding as complete after multiple attempts");
-      }
-      
-      // Refresh user data one more time to ensure we have the latest profile state
-      await refreshUser();
-      
-      // Check if we have profile data with GitHub profile
-      if (profile && profile.github_profile) {
-        // Move to GitHub step to show the profile for confirmation
-        setGithubProfile(profile.github_profile);
-        setCurrentStep(OnboardingStep.GITHUB_PROFILE);
-        updateProgress();
-        
-        toast({
-          title: "CV uploaded successfully",
-          description: "We found your GitHub profile in your CV. Please confirm or edit it.",
-        });
-        
-        clearTimeout(uploadTimeout);
-        setLoading(false);
-        return;
-      }
-
-      // No GitHub profile found or no profile data available, go to completion
-      toast({
-        title: "CV uploaded successfully",
-        description: "Your CV has been uploaded and we're analyzing it to extract your skills",
+      // Update profile flags immediately to prevent redirect loops
+      await updateProfile(user.id, {
+        has_uploaded_cv: true,
+        has_completed_onboarding: true
       });
 
-      // Skip GitHub step and go directly to completion
-      setCurrentStep(OnboardingStep.COMPLETE);
-      updateProgress();
+      // Start the CV upload and parsing in the background
+      const result = await uploadAndParseCV(user.id, base64Data);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to process CV');
+      }
 
-      clearTimeout(uploadTimeout);
+      // Show success message
+      toast({
+        title: "CV upload successful",
+        description: "Your CV is being processed. Redirecting to success guide...",
+      });
+
+      // Small delay to ensure state updates and toast are visible
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Force a full page refresh when redirecting to success guide
+      window.location.href = "/success-guide";
+      
     } catch (error: any) {
       console.error("Error uploading CV:", error);
+      setCvProcessingStatus({
+        stage: 'error',
+        progress: 0,
+        error: error.message || 'Failed to upload CV'
+      });
       toast({
-        title: "Error uploading CV",
-        description: error.message || "An error occurred while uploading your CV",
+        title: "Upload failed",
+        description: error.message || "Failed to upload and process your CV. Please try again.",
         variant: "destructive",
       });
-      clearTimeout(uploadTimeout);
     } finally {
       setLoading(false);
     }
@@ -289,8 +298,8 @@ export default function OnboardingPage() {
 
   const handleComplete = () => {
     console.log("Completing onboarding and redirecting to home page");
-    // Redirect to home page after completion
-    router.push("/");
+    // Redirect to home page with full page refresh
+    window.location.href = "/";
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -317,74 +326,88 @@ export default function OnboardingPage() {
       case OnboardingStep.CV_UPLOAD:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Upload your CV</h2>
-            <p className="text-muted-foreground">
-              Your CV helps employers understand your skills and experience. Please upload a PDF file.
-            </p>
-            
-            <div className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center space-y-4">
-              <Input 
-                id="cv" 
-                type="file" 
-                accept=".pdf" 
-                onChange={handleFileChange}
-                className={cvFile ? "hidden" : ""}
-                disabled={loading}
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold">Upload your CV</h2>
+              <p className="text-muted-foreground">
+                Upload your CV in PDF or Word format. We'll analyze it to match you with the best opportunities.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <FileDropInput
+                accept=".pdf,.doc,.docx"
+                onFileSelect={(file) => {
+                  setCvFile(file);
+                }}
+                selectedFile={cvFile}
+                onRemove={() => {
+                  setCvFile(null);
+                  setCvProcessingStatus(null);
+                }}
+                disabled={loading || cvProcessingStatus?.stage === 'uploading'}
               />
-              
-              {cvFile && (
-                <div className="flex items-center space-x-2">
-                  <Check className="h-5 w-5 text-green-500" />
-                  <span>{cvFile.name}</span>
-                  {!loading && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => setCvFile(null)}
-                      className="h-8 w-8 p-0 rounded-full"
-                    >
-                      <X className="h-4 w-4" />
-                      <span className="sr-only">Remove file</span>
-                    </Button>
+
+              {cvFile && !cvProcessingStatus && (
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleCvUpload}
+                    disabled={loading}
+                    className="w-full h-12 text-base font-medium"
+                    size="lg"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-5 w-5" />
+                        Process CV
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {cvProcessingStatus && cvProcessingStatus.stage !== 'complete' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {cvProcessingStatus.stage === 'error' ? 'Error' : 'Processing CV'}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {cvProcessingStatus.progress}%
+                    </span>
+                  </div>
+                  <Progress value={cvProcessingStatus.progress} className="h-2" />
+                  {cvProcessingStatus.stage === 'error' && (
+                    <div className="text-sm text-destructive">
+                      {cvProcessingStatus.error}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setCvProcessingStatus(null);
+                          setCvFile(null);
+                        }}
+                        className="ml-2"
+                      >
+                        Try Again
+                      </Button>
+                    </div>
+                  )}
+                  {cvProcessingStatus.stage !== 'error' && (
+                    <p className="text-sm text-muted-foreground">
+                      {cvProcessingStatus.stage === 'uploading' && 'Uploading your CV...'}
+                      {cvProcessingStatus.stage === 'parsing' && 'Extracting information from your CV...'}
+                      {cvProcessingStatus.stage === 'analyzing' && 'Analyzing your skills and experience...'}
+                      {cvProcessingStatus.stage === 'matching' && 'Finding matching job opportunities...'}
+                    </p>
                   )}
                 </div>
               )}
-              
-              {!cvFile && (
-                <Label 
-                  htmlFor="cv" 
-                  className="flex flex-col items-center cursor-pointer"
-                >
-                  <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                  <span className="text-sm text-muted-foreground">Drag and drop or click to upload</span>
-                </Label>
-              )}
             </div>
-            
-            <Button 
-              onClick={handleCvUpload} 
-              disabled={!cvFile || loading} 
-              className="w-full"
-            >
-              {loading ? (
-                <>
-                  <Spinner className="mr-2" />
-                  <span>Uploading...</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  <span>Upload CV</span>
-                </>
-              )}
-            </Button>
-            
-            {loading && (
-              <div className="text-xs text-center text-muted-foreground">
-                <p>Please wait while we upload and analyze your CV. This may take a moment.</p>
-                <p>Do not refresh the page or navigate away.</p>
-              </div>
-            )}
           </div>
         );
       
