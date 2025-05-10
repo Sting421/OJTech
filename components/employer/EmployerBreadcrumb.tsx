@@ -121,11 +121,19 @@ export function EmployerBreadcrumb() {
       // The last segment is the current page
       const isCurrentPage = i === pathSegments.length - 1;
       
-      breadcrumbs.push({
-        label,
-        href: currentPath,
-        isCurrentPage
-      });
+      if (dynamicLabels[segment]) {
+        breadcrumbs.push({
+          label: dynamicLabels[segment],
+          href: currentPath,
+          isCurrentPage
+        });
+      } else {
+        breadcrumbs.push({
+          label,
+          href: currentPath,
+          isCurrentPage
+        });
+      }
     }
     
     return breadcrumbs;

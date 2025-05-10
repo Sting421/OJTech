@@ -38,13 +38,17 @@ export async function middleware(request: NextRequest) {
   }
 
   // Define protected routes
-  const studentRoutes = ['/opportunities', '/track', '/profile', '/success-guide'];
+  const studentRoutes = ['/opportunities', '/track', '/success-guide'];
+  // Move /profile to its own variable for special handling
+  const profileRoute = '/profile';
   const employerRoutes = ['/employer'];
   const adminRoutes = ['/admin'];
   const publicRoutes = ['/auth', '/onboarding'];
   
-  // Get the pathname
+  // Get the pathname and search params
   const path = request.nextUrl.pathname;
+  const searchParams = request.nextUrl.searchParams;
+  const hasStudentIdParam = searchParams.has('student_id');
 
   // Function to check if current path matches any of the routes
   const matchesRoute = (routes: string[]) => {
@@ -71,7 +75,7 @@ export async function middleware(request: NextRequest) {
   // Handle authentication
   if (!session) {
     // If trying to access protected routes without auth, redirect to login
-    if (matchesRoute([...studentRoutes, ...employerRoutes, ...adminRoutes])) {
+    if (matchesRoute([...studentRoutes, profileRoute, ...employerRoutes, ...adminRoutes])) {
       const redirectUrl = new URL('/auth/login', request.url);
       redirectUrl.searchParams.set('redirect', path);
       return NextResponse.redirect(redirectUrl);
@@ -110,6 +114,26 @@ export async function middleware(request: NextRequest) {
     if (profile?.cv_processing_status === 'error' && !isAccessingSuccessGuide) {
       console.log('Redirecting to success guide due to CV processing error');
       return NextResponse.redirect(new URL('/success-guide', request.url));
+    }
+  }
+
+  // Special handling for profile route
+  if (path.startsWith(profileRoute)) {
+    // Allow employers and admins to access with student_id param
+    if (hasStudentIdParam && (profile?.role === 'employer' || profile?.role === 'admin')) {
+      return res; // Grant access
+    }
+    
+    // For students or when no student_id is provided, apply the same rules as other student routes
+    const cvIsProcessing = 
+      profile?.cv_status === 'processing' || 
+      profile?.cv_status === 'uploaded' ||
+      ['uploading', 'parsing', 'analyzing', 'matching'].includes(profile?.cv_processing_status || '');
+    
+    const hasCompletedRequirements = profile?.has_completed_onboarding && profile?.has_uploaded_cv;
+    
+    if (profile?.role === 'student' && !hasCompletedRequirements && !cvIsProcessing) {
+      return NextResponse.redirect(new URL('/onboarding', request.url));
     }
   }
 

@@ -393,7 +393,7 @@ export default function JobApplicationsPage({ params }: { params: { id: string }
                         )}
                         
                         {/* CV Button */}
-                        {application.cv?.id && (
+                        {application.cv?.id && (+
                           <Button
                             variant="outline"
                             size="sm"
